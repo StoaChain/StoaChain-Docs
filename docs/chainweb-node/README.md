@@ -207,13 +207,13 @@ Detailed documentation is available in the following locations:
 
 | Topic | Location | Description |
 |-------|----------|-------------|
-| **Emission System** | [`docs/EMISSION_SYSTEM.md`](docs/EMISSION_SYSTEM.md) | Deterministic emission formula, global supply registry |
-| **Gas Price System** | [`docs/GAS_PRICE_SYSTEM.md`](docs/GAS_PRICE_SYSTEM.md) | Dynamic minimum gas price, time-based increases |
-| **Genesis System** | [`cwtools/ea/README.md`](cwtools/ea/README.md) | Genesis payload generation, transaction order, keysets |
-| **Pact 4 Removal** | [`src/Chainweb/Pact4/README.md`](src/Chainweb/Pact4/README.md) | Detailed log of Pact 4 code removal |
-| **CW Tools** | [`cwtools/README.md`](cwtools/README.md) | Command-line tools for Chainweb |
-| **Rosetta API** | [`rosetta/README.md`](rosetta/README.md) | Rosetta API implementation |
-| **Store** | [`src/Chainweb/Store/README.md`](src/Chainweb/Store/README.md) | Database storage layer |
+| **Emission System** | [`EMISSION_SYSTEM.md`](EMISSION_SYSTEM.md) | Deterministic emission formula, global supply registry |
+| **Gas Price System** | [`GAS_PRICE_SYSTEM.md`](GAS_PRICE_SYSTEM.md) | Dynamic minimum gas price, time-based increases |
+| **Genesis System** | [`GENESIS_SYSTEM.md`](GENESIS_SYSTEM.md) | Genesis payload generation, transaction order, keysets |
+| **Pact 4 Removal** | [`PACT4_REMOVAL.md`](PACT4_REMOVAL.md) | Detailed log of Pact 4 code removal |
+| **CW Tools** | [`CWTOOLS.md`](CWTOOLS.md) | Command-line tools for Chainweb |
+| **Rosetta API** | [`ROSETTA.md`](ROSETTA.md) | Rosetta API implementation |
+| **Store** | [`STORE.md`](STORE.md) | Database storage layer |
 
 ---
 
@@ -447,7 +447,7 @@ The global supply registry is implemented via:
 1. **AncientPact** (Pact-5 fork): Extended `chain-data` to include `global-supply-register` field
 2. **AncientStoa** (Chainweb fork): `Chainweb.Pact.GlobalSupply` module queries all chains' `LocalSupply` tables
 
-See [`docs/EMISSION_SYSTEM.md`](docs/EMISSION_SYSTEM.md) for detailed implementation documentation.
+See [`EMISSION_SYSTEM.md`](EMISSION_SYSTEM.md) for detailed implementation documentation.
 
 ### URSTOA Token
 
@@ -740,7 +740,7 @@ Before starting the node for the first time:
 
 > ⚠️ **CRITICAL**: The `GENESIS-TIME` constant in Pact and `stoaGenesisTime` in Haskell 
 > **MUST be identical**. Mismatched values will cause gas price validation failures.
-> See [`docs/GAS_PRICE_SYSTEM.md`](docs/GAS_PRICE_SYSTEM.md) for details.
+> See [`GAS_PRICE_SYSTEM.md`](GAS_PRICE_SYSTEM.md) for details.
 
 #### Keyset Configuration
 - [ ] Configure `ns-admin-keyset` and `ns-operate-keyset` in `ns.yaml`
