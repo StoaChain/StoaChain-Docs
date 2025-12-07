@@ -305,9 +305,231 @@ cabal build lib:chainweb
 
 ---
 
+# CSV-Based Rewards & Allocations Removal
+
+> **Date**: December 7, 2025
+
+StoaChain uses **dynamic emission** calculated in Pact via `global-supply-register`, not a static CSV reward table or allocation distribution system. This section documents the complete removal of these legacy Kadena systems.
+
+## Why Remove?
+
+| System | Kadena (Before) | StoaChain (After) |
+|--------|-----------------|-------------------|
+| **Miner Rewards** | Static 120-year CSV schedule | Dynamic: `(CEILING - supply) / (BPD × EMISSION × chains)` |
+| **Allocations** | Pre-genesis token distributions | No allocations - all STOA minted at genesis to foundation |
+| **Reward Source** | `rewards/miner_rewards.csv` embedded at compile time | `global-supply-register` injected by node at runtime |
+
+## Deleted Files
+
+### Folders Removed
+```
+allocations/                    # Kadena allocation CSVs
+├── Mainnet-Keysets.csv        # ~500 entries
+├── Testnet-Keysets.csv        # ~200 entries  
+└── token_payments.csv         # ~1320 lines of payment schedule
+
+rewards/                        # Static reward table
+└── miner_rewards.csv          # 1438 lines (120-year schedule)
+
+rosetta/                        # Empty folder (API removed)
+└── README.md
+
+changes/                        # Empty changelog folder
+└── .gitignore
+```
+
+### Source Files Removed
+```
+src/Chainweb/MinerReward.hs    # 280 lines - CSV parsing & reward lookup
+```
+
+### Test Files Removed
+```
+test/pact/coin-and-devaccts.repl           # Kadena coin tests
+test/pact/twenty-chain-upgrades.repl       # Allocation tests
+test/pact/twenty-chain-insufficient-bal.repl
+test/unit/Chainweb/Test/MinerReward.hs     # Reward unit tests
+```
+
+### Genesis Files Removed
+```
+pact/coin-contract/initial-mint.yaml       # Replaced by stoa-initialise.yaml
+pact/coin-contract/initial-mint-urstoa.yaml
+```
+
+## Code Modifications
+
+### 1. `src/Chainweb/Pact5/Templates.hs`
+
+**Critical Bug Fix**: The template was passing 3 arguments but `XM_StoaCoinbase` only takes 2!
+
+```haskell
+-- BEFORE (Broken - passing unused reward)
+coinbaseTemplate mid =
+  let varApp = qn "XM_StoaCoinbase" "STOA"
+      rks = app (bn "read-keyset") [strLit "miner-keyset"]
+      rds = app (bn "read-decimal") [strLit "reward"]  -- ❌ Not needed!
+  in app varApp [midTerm, rks, rds]  -- 3 args but Pact takes 2
+
+mkCoinbaseTerm :: MinerId -> MinerKeys -> Decimal -> (Expr (), PactValue)
+
+-- AFTER (Fixed - matches Pact signature)
+coinbaseTemplate mid =
+  let varApp = qn "XM_StoaCoinbase" "STOA"
+      rks = app (bn "read-keyset") [strLit "miner-keyset"]
+  in app varApp [midTerm, rks]  -- ✅ 2 args: account, guard
+
+mkCoinbaseTerm :: MinerId -> MinerKeys -> (Expr (), PactValue)  -- No Decimal
+```
+
+### 2. `src/Chainweb/Pact/PactService/Pact5/ExecBlock.hs`
+
+Removed the `minerReward` function that looked up rewards from CSV:
+
+```haskell
+-- REMOVED
+minerReward :: ChainwebVersion -> BlockHeight -> Decimal
+minerReward v = _kda . minerRewardKda . blockMinerReward v
+
+-- runCoinbase no longer computes or passes reward
+runCoinbase miner = do
+    ...
+    -- let reward = minerReward v bh  -- ❌ REMOVED
+    pactTransaction Nothing $ \db ->
+        applyCoinbase logger db txCtx  -- No reward parameter
+```
+
+### 3. `src/Chainweb/Pact5/TransactionExec.hs`
+
+```haskell
+-- BEFORE
+applyCoinbase :: logger -> PactDb -> Decimal -> TxContext -> IO (...)
+applyCoinbase logger db reward txCtx = do
+    let (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks reward
+
+-- AFTER  
+applyCoinbase :: logger -> PactDb -> TxContext -> IO (...)
+applyCoinbase logger db txCtx = do
+    let (coinbaseTerm, coinbaseData) = mkCoinbaseTerm mid mks  -- No reward
+```
+
+### 4. `src/Chainweb/Miner/Pact.hs`
+
+Removed entire rewards system:
+
+```haskell
+-- REMOVED exports
+, MinerRewards(..)
+, readRewards  
+, rawMinerRewards
+
+-- REMOVED types
+newtype MinerRewards = MinerRewards
+    { _minerRewards :: Map BlockHeight Decimal }
+
+-- REMOVED functions  
+readRewards :: MinerRewards
+rawMinerRewards :: ByteString
+rawMinerRewards = $(embedFile "rewards/miner_rewards.csv")
+```
+
+### 5. `src/Chainweb/Pact/Types.hs`
+
+Removed `_psMinerRewards` field from `PactServiceEnv`:
+
+```haskell
+-- REMOVED from exports
+, psMinerRewards
+
+-- REMOVED from type
+data PactServiceEnv logger tbl = PactServiceEnv
+    { ...
+    , _psMinerRewards :: !MinerRewards  -- ❌ REMOVED
+    , ...
+    }
+```
+
+### 6. `src/Chainweb/Pact/PactService.hs`
+
+```haskell
+-- REMOVED
+let !rs = readRewards
+let !pse = PactServiceEnv
+    { ...
+    , _psMinerRewards = rs  -- ❌ REMOVED
+    }
+```
+
+### 7. `chainweb.cabal`
+
+```cabal
+-- REMOVED from extra-source-files
+rewards/miner_rewards.csv
+allocations/token_payments.csv
+allocations/Mainnet-Keysets.csv
+allocations/Testnet-Keysets.csv
+
+-- REMOVED from library modules
+Chainweb.MinerReward
+
+-- REMOVED from test modules
+Chainweb.Test.MinerReward
+```
+
+### 8. Test Files
+
+**`test/unit/Chainweb/Test/Pact5/RemotePactTest.hs`**:
+- Removed `allocationTest` function (~125 lines)
+- Removed `allocation01KeyPair`, `allocation02KeyPair`, `allocation02KeyPair'`
+- Removed test case from test suite
+
+**`test/lib/Chainweb/Test/Pact5/CmdBuilder.hs`**:
+- Removed `allocation00KeyPair`
+
+## How StoaChain Emission Works Now
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    COINBASE EXECUTION                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Node computes global-supply-register:                    │
+│     SUM(LocalSupply) from all 10 chains                     │
+│                                                              │
+│  2. Node injects into chain-data before coinbase            │
+│                                                              │
+│  3. Pact XM_StoaCoinbase calculates reward:                 │
+│     remaining = CEILING - global_supply                      │
+│     yang = remaining / (BPD × EMISSION_SPEED × chains)      │
+│                                                              │
+│  4. Split: 90% to miner, 10% to URSTOA-Vault                │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+
+Benefits:
+✅ Self-adjusting emission (approaches CEILING asymptotically)
+✅ No hardcoded 120-year schedule
+✅ Transparent - calculation visible in Pact code
+✅ Simpler codebase - no CSV parsing/embedding
+```
+
+## Statistics
+
+| Metric | Value |
+|--------|-------|
+| Files Changed | 22 |
+| Lines Deleted | 3,681 |
+| Lines Added | 19 |
+| Modules Removed | 1 (MinerReward.hs) |
+| Test Files Removed | 4 |
+| Data Files Removed | 5 |
+
+---
+
 ## Date of Modification
 
-December 2, 2025
+December 2, 2025 (Pact4 Removal)
+December 7, 2025 (Rewards & Allocations Removal)
 
 ## Modified By
 
@@ -317,3 +539,5 @@ AI Assistant (Claude) during StoaChain implementation
 
 - StoaChain Implementation Plan: `cursor-plan://StoaChain Implementation Plan.plan.md`
 - StoaChain GitBook: https://demiourgos-holdings-tm.gitbook.io/kadena-evolution
+- Emission System: `docs/EMISSION_SYSTEM.md`
+- Genesis System: `cwtools/ea/README.md`
