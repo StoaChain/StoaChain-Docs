@@ -51,13 +51,15 @@ chainweb-node/
 │   │   └── stoa-masters.pact  # 7 governance keyset definitions
 │   │
 │   ├── coin-contract/
-│   │   ├── stoa.pact                  # STOA token module
-│   │   ├── stoa-install.pact          # Table creation
+│   │   ├── stoa.pact                  # STOA token module (includes URSTOA & Vault)
+│   │   ├── stoa-install.pact          # Table creation (7 tables)
+│   │   ├── stoa-initialise.yaml       # Genesis initialization
 │   │   ├── load-stoa-interface.yaml   # Loads StoaFungibleV1
 │   │   ├── load-stoa-contract.yaml    # Loads STOA module
 │   │   ├── install-stoa-contract.yaml # Creates tables
 │   │   └── v1/
-│   │       └── StoaFungibleV1.pact    # Token interface
+│   │       ├── StoaFungibleV1.pact    # Token interface
+│   │       └── stoa.pact              # Versioned STOA module
 │   │
 │   └── gas-payer/
 │       └── load-gas-payer.yaml        # Gas payer contract
@@ -99,22 +101,23 @@ The genesis block executes transactions in the following order:
    - Creates `STOA.StoaTable` (STOA account balances)
    - Creates `STOA.LocalSupply` (per-chain STOA supply tracking)
    - Creates `STOA.FoundationPending` (10% Yang emission accumulation)
-   - Creates `STOA.UR|StoaTable` (URSTOA account balances - Chain 0 only)
-   - Creates `STOA.UR|LocalSupply` (URSTOA supply tracking - Chain 0 only)
+   - Creates `STOA.UR|StoaTable` (URSTOA account balances)
+   - Creates `STOA.UR|LocalSupply` (URSTOA supply tracking)
+   - Creates `STOA.URV|UrStoaVault` (URSTOA-Vault state)
+   - Creates `STOA.URV|UrStoaVaultUser` (URSTOA-Vault user stakes)
 
-6. **Initial STOA Mint** (`initial-mint.yaml`)
-   - Calls `STOA.XM_InitialMint` with GENESIS capability
-   - Mints `GENESIS-SUPPLY` (12M STOA) to the foundation account
-   - Updates the `LocalSupply` table
-   - Executed on ALL chains (foundation receives genesis supply on all chains)
+6. **StoaChain Initialization** (`stoa-initialise.yaml`)
+   - Calls `STOA.A_InitialiseStoaChain` with GENESIS capability
+   - **On Chain 0:**
+     - Creates foundation accounts for STOA and URSTOA
+     - Mints `GENESIS-SUPPLY` (12M STOA) to foundation
+     - Mints `URGENESIS-SUPPLY` (1M URSTOA) to foundation
+     - Initializes URSTOA-Vault with foundation as first staker
+   - **On Chains 1-9:**
+     - No-op (returns success without doing anything)
+   - All initial supply is minted exclusively on Chain 0
 
-7. **Initial URSTOA Mint** (`initial-mint-urstoa.yaml`)
-   - Calls `STOA.XM_UR|InitialMint` with GENESIS capability
-   - Mints `URGENESIS-SUPPLY` (1M URSTOA) to the foundation account
-   - Only mints on Chain 0 (enforced by Pact code)
-   - On chains 1-9, this is a no-op (returns success without minting)
-
-8. **Gas Payer** (`gas-payer-v1.pact`)
+7. **Gas Payer** (`gas-payer-v1.pact`)
    - Enables gas station functionality
 
 ### GENESIS Capability
@@ -188,7 +191,7 @@ This means **any one** of the 7 master keysets can authorize governance actions.
 2. **Stoa Masters keysets** in `pact/genesis/{network}/stoa-masters.yaml`:
    - `stoa_master_one` through `stoa_master_seven`
 
-3. **Foundation keyset** in `pact/coin-contract/initial-mint.yaml`:
+3. **Foundation keyset** in `pact/coin-contract/stoa-initialise.yaml`:
    - `stoa-foundation-keyset`
 
 ## Running the Ea Tool
@@ -297,7 +300,7 @@ keyPairs: []                       # Empty for genesis (no signatures needed)
    - `pact/coin-contract/load-stoa-interface.yaml`
    - `pact/coin-contract/load-stoa-contract.yaml`
    - `pact/coin-contract/install-stoa-contract.yaml`
-   - `pact/coin-contract/initial-mint.yaml` (mints GENESIS-SUPPLY to foundation)
+   - `pact/coin-contract/stoa-initialise.yaml` (initializes StoaChain on Chain 0)
 
 4. **Network-Specific Genesis Configs**:
    - `pact/genesis/mainnet/ns.yaml`
@@ -327,156 +330,49 @@ After running the Ea tool:
 
 1. Add generated payload modules to `chainweb.cabal`
 2. Update `StoaChain.hs` to import and use actual payloads instead of `emptyPayload`
-3. Implement the Global Supply Registry for emission calculations
-4. Configure bootstrap nodes for each network
+3. Configure bootstrap nodes for each network
 
 ---
 
-## Global Supply Registry (Pending Implementation)
+## Global Supply Registry (Implemented)
 
-### The Problem
+The `XM_StoaCoinbase` function computes block rewards dynamically using two custom `chain-data` fields that are injected by the node runtime.
 
-The `XM_StoaCoinbase` function computes block rewards dynamically using:
+### Chain-Data Extensions
 
-```pact
-(current-total-supply:decimal (at "global-supply-register" (chain-data)))
-(daily-emission:decimal (/ (- (UC_CurrentCeiling) current-total-supply) EMISSION-SPEED))
-(block-emission:decimal (/ daily-emission BPD))
-```
+StoaChain uses **AncientPact** (a fork of Pact 5) with two additional `chain-data` fields:
 
-The key `global-supply-register` does **NOT** exist in the standard Pact `(chain-data)` object. This requires modification to inject the global supply value.
+| Field | Type | Available On | Description |
+|-------|------|--------------|-------------|
+| `global-supply-register` | Decimal | All chains | Sum of LocalSupply from all chains |
+| `external-fpa` | Decimal | Chain 0 only | Sum of FoundationPending from chains 1-9 |
 
-### How It Should Work
+### Implementation
 
-1. **After each coinbase event** (block mined), the node must:
-   - Query `UR_LocalStoaSupply` on each chain (0-9 for mainnet, 0-2 for testnet/devnet)
-   - Sum all local supplies to get `global-supply`
-   - Store this value for the next block's `chain-data`
+The implementation spans both repositories:
 
-2. **When executing `XM_StoaCoinbase`**, the node injects `global-supply-register` into the `chain-data` object before Pact execution.
+**AncientPact (Pact 5 Fork):**
+- `Pact/Core/Evaluate.hs` - Added `_pdGlobalSupplyRegister` and `_pdExternalFPA` to `PublicData`
+- `Pact/Core/IR/Eval/CEK/CoreBuiltin.hs` - Fields included in `coreChainData` output
 
-### Implementation Options
+**AncientStoa (Chainweb Node):**
+- `src/Chainweb/Pact/GlobalSupply.hs` - Computes global supply and external FPA
+- `src/Chainweb/Pact5/Types.hs` - `TxContext` includes `_tcGlobalSupply` and `_tcExternalFPA`
+- `src/Chainweb/Pact5/TransactionExec.hs` - `ctxToPublicData` populates the fields
 
-#### Option A: Modify Pact Core (pact-5 repository)
+### How It Works
 
-The `chain-data` function is defined in the Pact language core. Modifying it would require:
-- Forking the `pact-5` repository
-- Adding `global-supply-register` to the `ChainData` type
-- Updating the Pact interpreter to accept this new field
+1. **Before coinbase execution**, the node:
+   - Queries `LocalSupply` table on each chain and sums them → `global-supply-register`
+   - Queries `FoundationPending` table on chains 1-9 and sums them → `external-fpa` (Chain 0 only)
 
-**Pros**: Clean integration, standard Pact function
-**Cons**: Requires maintaining a Pact fork, complex
-
-#### Option B: Modify ChainwebPactDb (chainweb-node)
-
-The `chain-data` object is constructed in the chainweb-node before passing to Pact. We can:
-- Add `global-supply-register` to the `TxContext` in `TransactionExec.hs`
-- Compute the global supply in `PactService.hs` before block execution
-- Inject it into the Pact execution environment
-
-**Pros**: Self-contained in chainweb-node, no Pact fork needed
-**Cons**: Requires understanding the Pact-Chainweb interface
-
-#### Option C: Use a Separate Table (Pact-only)
-
-Instead of modifying `chain-data`, create a separate global registry:
-- A dedicated module that tracks global supply
-- Updated after each coinbase via capability
-- Queried directly in `XM_StoaCoinbase`
-
-**Pros**: Pure Pact solution
-**Cons**: Cross-chain synchronization is complex, may not have global view
-
-### Recommended Approach: Option B
-
-The most practical approach is to modify the chainweb-node to inject `global-supply-register` into the Pact execution context. This involves:
-
-1. **Computing Global Supply** (`PactService.hs` or `ExecBlock.hs`):
-   ```haskell
-   computeGlobalSupply :: PactBlockM logger tbl Decimal
-   computeGlobalSupply = do
-       v <- view chainwebVersion
-       let chainIds = chainGraphChainIds (chainGraphAt v maxBound)
-       supplies <- forM chainIds $ \cid -> 
-           queryLocalSupply cid  -- Query UR_LocalStoaSupply on each chain
-       return $ sum supplies
+2. **During coinbase**, the Pact code accesses these values:
+   ```pact
+   (current-total-supply:decimal (at "global-supply-register" (chain-data)))
+   (external-fpa:decimal (at "external-fpa" (chain-data)))
    ```
 
-2. **Injecting into TxContext** (`TransactionExec.hs`):
-   ```haskell
-   -- Add to the chain-data object construction
-   chainDataWithSupply = chainData 
-       & at "global-supply-register" ?~ PDecimal globalSupply
-   ```
-
-3. **Updating After Coinbase**:
-   After each successful coinbase, the local supply on that chain increases. The global supply is recomputed for the next block.
-
-### Technical Analysis
-
-After analyzing the Pact5 source code, the `chain-data` native function is implemented in:
-```
-pact-5/Pact/Core/IR/Eval/CEK/CoreBuiltin.hs
-```
-
-The implementation:
-```haskell
-coreChainData :: (IsBuiltin b) => NativeFunction e b i
-coreChainData info b cont handler _env = \case
-  [] -> do
-    PublicData publicMeta blockHeight blockTime prevBh <- viewEvalEnv eePublicData
-    let (PublicMeta cid sender (GasLimit (Gas gasLimit)) (GasPrice gasPrice) _ttl _creationTime) = publicMeta
-    let fields = M.fromList 
-          [ (cdChainId, PString (_chainId cid))
-          , (cdBlockHeight, PInteger (fromIntegral blockHeight))
-          , (cdBlockTime, PTime (PactTime.fromPosixTimestampMicros blockTime))
-          , (cdPrevBlockHash, PString prevBh)
-          , (cdSender, PString sender)
-          , (cdGasLimit, PInteger (fromIntegral gasLimit))
-          , (cdGasPrice, PDecimal gasPrice)]
-    returnCEKValue cont handler (VObject fields)
-```
-
-**Key Finding**: The fields are **hardcoded** in the Pact library. Adding `global-supply-register` requires modifying the Pact library itself.
-
-### Implementation: Fork Pact5
-
-StoaChain will use a **forked version of Pact 5** to add the `global-supply-register` field:
-
-1. **Fork `kadena-io/pact-5` repository**
-2. **Modify `Pact/Core/ChainData.hs`**:
-   ```haskell
-   data PublicData = PublicData
-     { _pdPublicMeta :: !PublicMeta
-     , _pdBlockHeight :: !Word64
-     , _pdBlockTime :: !Int64
-     , _pdPrevBlockHash :: !Text
-     , _pdGlobalSupplyRegister :: !(Maybe Decimal)  -- NEW FIELD
-     }
-   ```
-3. **Modify `Pact/Core/IR/Eval/CEK/CoreBuiltin.hs`**:
-   ```haskell
-   let fields = M.fromList 
-         [ ... existing fields ...
-         , (Field "global-supply-register", maybe PUnit PDecimal globalSupply)
-         ]
-   ```
-4. **Update chainweb-node's `ctxToPublicData`** to populate the new field
-
-### Files to Modify
-
-| Repository | File | Change |
-|------------|------|--------|
-| pact-5 | `Pact/Core/ChainData.hs` | Add `_pdGlobalSupplyRegister` field |
-| pact-5 | `Pact/Core/IR/Eval/CEK/CoreBuiltin.hs` | Include field in `coreChainData` |
-| chainweb-node | `src/Chainweb/Pact5/TransactionExec.hs` | Populate `_pdGlobalSupplyRegister` |
-| chainweb-node | `src/Chainweb/Pact/PactService/Pact5/ExecBlock.hs` | Compute global supply |
-
-### Timing Considerations
-
-The global supply must be computed **before** the coinbase transaction executes, using the state from the **previous** block. This ensures:
-- Deterministic computation (all nodes get the same value)
-- No circular dependency (coinbase doesn't depend on its own result)
+3. **Timing**: Values are computed from the **previous** block state, ensuring deterministic computation across all nodes.
 
 ### Cross-Chain Supply Updates
 
@@ -485,6 +381,21 @@ When cross-chain transfers complete:
 - Target chain: `LocalSupply` increases (via `X_UpdateLocalSupply amount true`)
 
 The global supply remains constant (tokens move, not created). The node's supply computation naturally handles this by summing all chains.
+
+### REPL Testing
+
+In the Pact REPL, these fields don't exist unless mocked:
+
+```pact
+(env-chain-data { 
+    "chain-id": "0", 
+    "block-time": (time "2026-06-15T12:00:00Z"),
+    "global-supply-register": 100000000.0,
+    "external-fpa": 350.0
+})
+```
+
+See `pact/coin-contract/stoa.repl` for complete testing examples.
 
 ---
 
