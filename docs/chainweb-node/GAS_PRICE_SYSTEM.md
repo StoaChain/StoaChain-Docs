@@ -1,6 +1,31 @@
-# StoaChain Dynamic Gas Price System
+# StoaChain Yin Earnings System (Dynamic Gas Price)
 
-This document describes the dynamic minimum gas price system implemented in StoaChain, which replaces Kadena's static minimum gas price configuration.
+This document describes the **Yin Earnings** mechanism - the gas-based income that miners earn from transaction execution, powered by StoaChain's dynamic minimum gas price system.
+
+---
+
+## Yin vs Yang: Miner Income Sources
+
+StoaChain miners earn STOA from two distinct sources:
+
+| Source | Name | Description | Document |
+|--------|------|-------------|----------|
+| **Block Rewards** | **Yang Emission** | Newly minted STOA (90% to miner) | `EMISSION_SYSTEM.md` |
+| **Transaction Fees** | **Yin Earnings** | Gas fees from transactions (100% to miner) | **This document** |
+
+### Key Difference
+
+```
+YANG EMISSION                        YIN EARNINGS
+─────────────────────────────────    ─────────────────────────────────
+• Newly minted STOA                  • Transfer of existing STOA
+• Decreases over time                • Increases over time (min price)
+• 90% miner / 10% foundation         • 100% to miner
+• Supply-based formula               • Activity-based (tx volume)
+• Inflationary                       • Non-inflationary
+```
+
+Unlike Yang Emission (which mints new tokens), **Yin Earnings are not emissions** - they represent the transfer of existing STOA from transaction senders to miners as payment for block space.
 
 ---
 
@@ -262,11 +287,20 @@ If Pact and Haskell have different genesis times, gas price calculations will di
 
 ---
 
+---
+
+## Related Documentation
+
+- **Yang Emission**: `EMISSION_SYSTEM.md` - Deterministic block rewards (90/10 split)
+- **Genesis System**: `cwtools/ea/README.md` - Genesis payload generation
+
+---
+
 ## Date
 
 Last updated: December 2024
 
 ## Attribution
 
-StoaChain Gas Price System - Replacing Kadena's static minimum with time-based dynamic pricing.
+StoaChain Yin Earnings System - Dynamic gas pricing for miner income from transaction fees.
 

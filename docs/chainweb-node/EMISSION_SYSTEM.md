@@ -1,27 +1,72 @@
-# StoaChain Emission System
+# StoaChain Yang Emission System
 
-This document describes the deterministic emission system used by StoaChain to mint new STOA tokens as block rewards, including the 90/10 Yang emission split and URSTOA distribution mechanism.
+This document describes the **Yang Emission** system - the deterministic emission mechanism used by StoaChain to mint new STOA tokens as block rewards, with a 90/10 split between miners and URSTOA holders.
+
+---
+
+## Yang vs Yin: Miner Income Sources
+
+StoaChain miners earn STOA from two distinct sources:
+
+| Source | Name | Description | Newly Minted? |
+|--------|------|-------------|---------------|
+| **Block Rewards** | **Yang Emission** | Deterministic emission based on supply formula | ✅ Yes |
+| **Transaction Fees** | **Yin Earnings** | Gas fees from transactions in the block | ❌ No (transfer) |
+
+### Yang Emission (This Document)
+
+Yang represents the **deterministic, newly-minted** STOA distributed each block:
+- Calculated via formula: `(CEILING - supply) / (BPD × EMISSION_SPEED × chains)`
+- Split 90/10 between miner and URSTOA-Vault
+- Decreases over time as supply approaches ceiling
+- Creates new STOA tokens (inflation)
+
+### Yin Earnings (See: GAS_PRICE_SYSTEM.md)
+
+Yin represents **gas-based earnings** from transaction execution:
+- Not emissions (no new tokens minted)
+- Transfer of existing STOA from transaction senders
+- Based on dynamic minimum gas price (increases over time)
+- 100% to the miner (no foundation split)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MINER EARNINGS PER BLOCK                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  YANG (Emission)              │  YIN (Gas Fees)                 │
+│  ─────────────────────────────┼──────────────────────────────── │
+│  • Newly minted STOA          │  • Existing STOA transferred    │
+│  • 90% to miner               │  • 100% to miner                │
+│  • 10% to URSTOA-Vault        │  • No foundation share          │
+│  • Decreases over time        │  • Increases over time          │
+│  • Formula-based              │  • Activity-based               │
+│                                                                  │
+│  Total Miner Income = Yang (90%) + Yin (100%)                   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Overview
 
-Unlike traditional blockchain emission systems that use hardcoded CSV tables or simple halving schedules, StoaChain uses a **deterministic formula** that calculates block rewards based on the current total supply across all chains.
+Unlike traditional blockchain emission systems that use hardcoded CSV tables or simple halving schedules, StoaChain uses a **deterministic formula** that calculates Yang emission based on the current total supply across all chains.
 
 ### Key Features
 
-- **Supply-Aware**: Emission rate decreases as total supply approaches the ceiling
+- **Supply-Aware**: Yang emission decreases as total supply approaches the ceiling
 - **Cross-Chain Aggregation**: Global supply computed by summing all chains' local supplies
 - **Deterministic**: Same inputs always produce same outputs, ensuring consensus
 - **Self-Adjusting**: No need for hard forks to adjust emission schedule
-- **90/10 Split**: 90% to miners, 10% to URSTOA (Stoa Shares) holders
-- **Per-Chain Division**: Block emission divided by number of chains (10 for Mainnet)
+- **90/10 Yang Split**: 90% to miners, 10% to URSTOA (Stoa Shares) holders
+- **Per-Chain Division**: Yang emission divided by number of chains (10 for Mainnet)
 
 ---
 
-## Emission Formula
+## Yang Emission Formula
 
-The emission calculation happens in `STOA.XM_StoaCoinbase`:
+The Yang emission calculation happens in `STOA.XM_StoaCoinbase`:
 
 ```
 daily_emission = (CEILING - global_supply) / EMISSION_SPEED
