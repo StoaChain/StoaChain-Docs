@@ -647,6 +647,53 @@ The STOA module is governed by 7 keysets using `enforce-one`:
 
 > ⚠️ **IMPORTANT**: Before launching StoaChain, you must configure the actual public keys in the genesis YAML files. The current files contain **placeholder keys** that must be replaced with real keys.
 
+### 🚀 Centralized Configuration (Recommended)
+
+Instead of manually editing multiple files, use the **centralized configuration system**:
+
+**Step 1: Edit the master config file**
+```bash
+nano stoachain-config.yaml
+```
+
+This single YAML file contains ALL settings:
+- Genesis time
+- Token economics (supply, ceiling)
+- Foundation keyset (account + keys)
+- 7 Stoa Masters keysets
+- Namespace admin/operate keysets
+- Gas price settings
+
+**Step 2: Apply configuration to all files**
+```bash
+# Preview what will change
+./scripts/apply-config.sh --dry-run
+
+# Apply changes to all files
+./scripts/apply-config.sh
+```
+
+**Step 3: Generate genesis payloads and build**
+```bash
+cd cwtools && cabal run ea
+cd .. && cabal build chainweb-node
+```
+
+The script automatically updates:
+- `pact/coin-contract/stoa.pact` and `v1/stoa.pact`
+- `src/Chainweb/GasPrice.hs`
+- `pact/genesis/{network}/stoa-masters.yaml`
+- `pact/genesis/{network}/ns.yaml`
+- `pact/coin-contract/stoa-initialise.yaml`
+
+> 📋 **Full Documentation**: See [`docs/NODE_LAUNCH_CHECKLIST.md`](docs/NODE_LAUNCH_CHECKLIST.md) for the complete pre-launch guide.
+
+---
+
+### Manual Configuration (Alternative)
+
+If you prefer to edit files manually, configure the following:
+
 ### Keys to Configure
 
 There are **10 keysets/addresses** that need to be configured across the genesis YAML files:
@@ -793,6 +840,16 @@ This project is a fork of [Kadena Chainweb](https://github.com/kadena-io/chainwe
 
 - **GitBook Documentation**: [https://demiourgos-holdings-tm.gitbook.io/kadena-evolution](https://demiourgos-holdings-tm.gitbook.io/kadena-evolution)
 - **GitHub Repository**: [https://github.com/StoaChain/AncientStoa](https://github.com/StoaChain/AncientStoa)
+
+---
+
+## Development Method
+
+The extensive modifications to the Chainweb codebase—transforming it into StoaChain—were accomplished through a proprietary time dilation methodology. The StoaChain Admin, having cultivated mastery over spiritual energies—tapping into the primordial creational force that underlies existence—employed temporal manipulation capabilities to accelerate the development process.
+
+Within a carefully constructed time dilation field, the ratio of 1 minute of external time to approximately 3 hours of internal time allowed what would normally require months of effort (learning Haskell, mastering its intricacies, understanding the complex Chainweb infrastructure) to be completed in mere hours of real-world time.
+
+The Admin secluded himself within this temporal bubble with a laptop and a fuel-powered generator (operating at an accelerated rate to match the dilated timeframe), enabling the comprehensive overhaul of the codebase while the outside world experienced only a fraction of the elapsed duration.
 
 ---
 
