@@ -4,6 +4,59 @@ This document provides a **comprehensive checklist** of all configurations that 
 
 ---
 
+## 🚀 Quick Start: Centralized Configuration
+
+Instead of manually editing multiple files, you can use the **centralized configuration system**:
+
+### 1. Edit Single Config File
+
+```bash
+# Edit the master configuration file
+nano stoachain-config.yaml
+```
+
+This file contains ALL settings in one place:
+- Genesis time
+- Token economics (supply, ceiling)
+- Foundation keyset
+- Stoa Masters keysets (7 keys)
+- Namespace keysets
+- Gas price settings
+- Bootstrap nodes
+
+### 2. Apply Configuration
+
+```bash
+# Preview what will change (dry run)
+./scripts/apply-config.sh --dry-run
+
+# Apply changes to all files
+./scripts/apply-config.sh
+```
+
+### 3. Generate Genesis & Build
+
+```bash
+cd cwtools && cabal run ea
+cd .. && cabal build chainweb-node
+```
+
+**That's it!** The script automatically updates:
+- `pact/coin-contract/stoa.pact`
+- `pact/coin-contract/v1/stoa.pact`
+- `src/Chainweb/GasPrice.hs`
+- `pact/coin-contract/stoa-initialise.yaml`
+- `pact/genesis/stoachain/stoa-masters.yaml`
+- `pact/genesis/stoachain/ns.yaml`
+
+---
+
+## Manual Configuration (Alternative)
+
+If you prefer to edit files manually, see the detailed sections below.
+
+---
+
 ## Quick Reference
 
 | Priority | Item | Location | Status |
