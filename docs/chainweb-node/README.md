@@ -68,6 +68,7 @@ Read the original whitepapers:
 |--------|-----------------|-----------|
 | **Native Token** | KDA (`coin` module) | STOA (`STOA` module) |
 | **Token Interface** | `fungible-v2` + `fungible-xchain-v1` | `StoaFungibleV1` (merged) |
+| **TRANSFER Capability** | Managed (`@managed`) | Non-managed (simplified) |
 | **Governance** | `false` (always true) | 7 Stoa Masters keysets |
 | **Main Namespace** | `kadena` | `stoa-ns` |
 | **Pact Version** | Pact 4 → Pact 5 migration | Pact 5 from genesis |
@@ -77,6 +78,43 @@ Read the original whitepapers:
 | **Chain Count** | 20 chains (mainnet) | 10 chains (mainnet), 3 chains (testnet/devnet) |
 | **Block Gas Limit** | 180k max, 150k default | 500k max, 400k default |
 | **Gas Price** | Static minimum (1e-8 KDA) | Dynamic minimum (time-based) |
+
+### StoaFungibleV1 Interface
+
+StoaChain uses a simplified `StoaFungibleV1` interface that merges `fungible-v2` and `fungible-xchain-v1` into a single interface. A key simplification is the **removal of managed capabilities** from the TRANSFER function.
+
+#### Why Non-Managed TRANSFER?
+
+In Kadena's coin contract, `TRANSFER` is a managed capability (`@managed`) that requires:
+1. Either installing the capability in code, OR
+2. Adding the capability to a key before creating the transaction
+
+**The Problem with Managed TRANSFER:**
+- You cannot sign a transaction with an "empty" key (no capabilities) and add the same key with a capability
+- This forces users to use two different keys in certain scenarios
+- Adds complexity without meaningful security benefit
+
+**StoaChain's Solution:**
+- The `TRANSFER` capability is **non-managed** (no `@managed` annotation)
+- The capability still enforces all validations (sender guard, amount checks, precision)
+- The `DEBIT` capability inside TRANSFER enforces the sender's guard
+- This streamlines transaction execution without compromising security
+
+```pact
+;; StoaChain TRANSFER capability - non-managed but fully validated
+(defcap TRANSFER:bool (sender:string receiver:string amount:decimal)
+    @event
+    (UEV_Account sender)
+    (UEV_Account receiver)
+    (UEV_SenderWithReceiver sender receiver)
+    (UEV_Amount amount "Transfer requires a positive amount")
+    (UEV_StoaPrecision amount)
+    (compose-capability (DEBIT sender amount))  ;; Enforces sender's guard
+    (compose-capability (CREDIT receiver))
+)
+```
+
+The validations inside the TRANSFER capability are sufficient to ensure transfers execute correctly and securely.
 
 ---
 
