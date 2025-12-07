@@ -694,13 +694,105 @@ Cross-chain transfers (`C_TransferAcross`) do NOT change total supply:
 
 ---
 
+## Removed Kadena Legacy Systems
+
+StoaChain's dynamic emission system means several Kadena legacy components were completely removed from the codebase.
+
+### CSV-Based Miner Rewards (Removed)
+
+Kadena used a static 120-year reward schedule stored in `rewards/miner_rewards.csv`:
+
+```csv
+# Kadena's miner_rewards.csv (REMOVED)
+87600,23.04523    # Block 87600: 23.04 KDA per block
+175200,22.97878   # Block 175200: 22.97 KDA per block
+262800,22.91249   # ...decreasing every ~3 months
+...               # 1438 entries over 120 years
+```
+
+**Why removed?** StoaChain calculates rewards dynamically:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  KADENA (Removed)                 │  STOACHAIN (Current)         │
+├───────────────────────────────────┼──────────────────────────────┤
+│  reward = CSV[blockHeight]        │  yang = (CEILING - supply)   │
+│          / numChains              │        / (BPD × SPEED × N)   │
+├───────────────────────────────────┼──────────────────────────────┤
+│  ❌ Static 120-year schedule      │  ✅ Self-adjusting           │
+│  ❌ Embedded at compile time      │  ✅ Computed at runtime      │
+│  ❌ Hard fork to change           │  ✅ Formula-based            │
+└───────────────────────────────────┴──────────────────────────────┘
+```
+
+### Allocation System (Removed)
+
+Kadena had a pre-genesis token allocation system for investors, team, etc:
+
+```
+allocations/                    # REMOVED
+├── Mainnet-Keysets.csv        # ~500 investor keysets
+├── Testnet-Keysets.csv        # ~200 testnet allocations  
+└── token_payments.csv         # 1320 vesting schedule entries
+```
+
+**Why removed?** StoaChain has no pre-allocation:
+- All 12M STOA minted at genesis to foundation account
+- No investor vesting schedules
+- No `release-allocation` mechanism needed
+
+### Removed Files Summary
+
+| Category | Files Removed | Lines |
+|----------|---------------|-------|
+| **Reward CSV** | `rewards/miner_rewards.csv` | 1,438 |
+| **Allocations** | `allocations/*.csv` (3 files) | ~1,320 |
+| **Haskell Module** | `src/Chainweb/MinerReward.hs` | 280 |
+| **Test Files** | `test/unit/Chainweb/Test/MinerReward.hs` | ~100 |
+| **Pact Tests** | `test/pact/allocation*.repl` | ~50 |
+| **Total** | 8+ files | **~3,200** |
+
+### Code Changes
+
+The removal required updates to several Haskell modules:
+
+**`src/Chainweb/Pact5/Templates.hs`** - Fixed coinbase template:
+```haskell
+-- BEFORE (Kadena): Passed 3 arguments including CSV reward
+mkCoinbaseTerm :: MinerId -> MinerKeys -> Decimal -> (Expr (), PactValue)
+mkCoinbaseTerm mid mks reward = ...
+
+-- AFTER (StoaChain): Only 2 arguments, reward calculated in Pact
+mkCoinbaseTerm :: MinerId -> MinerKeys -> (Expr (), PactValue)
+mkCoinbaseTerm mid mks = ...
+```
+
+**`src/Chainweb/Pact/PactService/Pact5/ExecBlock.hs`** - Removed reward lookup:
+```haskell
+-- REMOVED: Static CSV lookup
+minerReward :: ChainwebVersion -> BlockHeight -> Decimal
+minerReward v = _kda . minerRewardKda . blockMinerReward v
+
+-- Coinbase now only passes miner info, not reward
+applyCoinbase logger db txCtx  -- No Decimal parameter
+```
+
+**`src/Chainweb/Miner/Pact.hs`** - Removed:
+```haskell
+-- REMOVED types and functions
+newtype MinerRewards = MinerRewards { _minerRewards :: Map BlockHeight Decimal }
+readRewards :: MinerRewards
+rawMinerRewards :: ByteString  -- $(embedFile "rewards/miner_rewards.csv")
+```
+
+---
+
 ## Files Reference
 
 | File | Purpose |
 |------|---------|
 | `pact/coin-contract/stoa.pact` | STOA + URSTOA contracts with emission logic |
-| `pact/coin-contract/initial-mint.yaml` | Genesis STOA mint transaction |
-| `pact/coin-contract/initial-mint-urstoa.yaml` | Genesis URSTOA mint transaction |
+| `pact/coin-contract/stoa-initialise.yaml` | Genesis initialization (accounts, mints, vault) |
 | `src/Chainweb/Pact/GlobalSupply.hs` | Global supply + FPA computation |
 | `src/Chainweb/Pact5/Types.hs` | TxContext with global supply and FPA fields |
 | `src/Chainweb/Pact5/TransactionExec.hs` | PublicData construction |
