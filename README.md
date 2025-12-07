@@ -17,8 +17,9 @@
 | Document | Description |
 |----------|-------------|
 | [**Main README**](docs/chainweb-node/README.md) | Complete overview of StoaChain, STOA/URSTOA tokens, architecture, and configuration |
-| [**Emission System**](docs/chainweb-node/EMISSION_SYSTEM.md) | Deterministic emission formula, global supply registry, foundation share distribution |
-| [**Gas Price System**](docs/chainweb-node/GAS_PRICE_SYSTEM.md) | Dynamic minimum gas price, time-based increases |
+| [**🚀 Node Launch Checklist**](docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md) | **Pre-launch configuration guide** - Genesis time, keysets, bootstrap nodes |
+| [**Yang Emission System**](docs/chainweb-node/EMISSION_SYSTEM.md) | Deterministic emission formula, 90/10 split, URSTOA-Vault, global supply registry |
+| [**Yin Earnings (Gas)**](docs/chainweb-node/GAS_PRICE_SYSTEM.md) | Dynamic minimum gas price, time-based increases |
 | [**Genesis System**](docs/chainweb-node/GENESIS_SYSTEM.md) | Genesis payload generation, transaction order, keysets |
 | [**Pact 4 Removal**](docs/chainweb-node/PACT4_REMOVAL.md) | Detailed log of Pact 4 code removal |
 
@@ -37,13 +38,20 @@
 
 - **STOA Token**: Native currency with deterministic emission
   - Genesis Supply: 12M STOA (on Chain 0)
-  - Emission: `(Ceiling - GlobalSupply) / (EMISSION_SPEED × BPD)`
+  - Yang Emission: `(Ceiling - GlobalSupply) / (EMISSION_SPEED × BPD × Chains)`
   - 90% to miners, 10% to URSTOA-Vault stakers
 
 - **URSTOA Token**: Virtual mining token (Chain 0 only)
   - Fixed Supply: 1M URSTOA
-  - Stake in URSTOA-Vault to earn 10% of all block emissions
+  - Stake in URSTOA-Vault to earn 10% of all Yang emissions
   - RPS (Reward Per Share) mechanism for gas-efficient distribution
+
+### Miner Income Sources
+
+| Source | Name | Description |
+|--------|------|-------------|
+| Block Rewards | **Yang Emission** | Newly minted STOA (90% to miner, 10% to vault) |
+| Transaction Fees | **Yin Earnings** | Gas fees transferred to miner (100%) |
 
 ### Chain-Data Extensions
 
