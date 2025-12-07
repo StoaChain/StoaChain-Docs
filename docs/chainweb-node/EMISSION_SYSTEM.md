@@ -133,6 +133,107 @@ All URSTOA functions enforce this with `UEV_MainChain`:
 
 ---
 
+## URSTOA-Vault (Staking System)
+
+The URSTOA-Vault is where URSTOA holders stake their tokens to receive a share of the 10% foundation allocation from Yang emissions. It uses a **Rewards Per Share (RPS)** model for efficient distribution.
+
+### Critical Design: Bootstrap Stake
+
+The vault is initialized with **1 URSTOA already staked** at genesis. This is a critical design decision:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    VAULT INITIALIZATION                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  At Genesis:                                                     │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  URSTOA-Vault                                            │   │
+│  │  ├── total-supply: 1.0 URSTOA (bootstrap stake)         │   │
+│  │  ├── rps: 0.0                                            │   │
+│  │  └── foundation stake: 1 URSTOA                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Block 1 Coinbase:                                               │
+│  ├── Yang emission calculated ✅                                │
+│  ├── 10% to foundation (0.065 STOA)                             │
+│  ├── C_URV|Inject called → RPS increases ✅                     │
+│  └── Vault has supply > 0, injection works! ✅                  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why the Bootstrap Stake?
+
+**Problem**: If the vault had 0 URSTOA staked, the injection formula would break:
+
+```pact
+;; RPS update formula
+(new-rps:decimal (+ rps (/ amount total-supply)))
+;;                         ↑
+;;        Division by zero if total-supply = 0!
+```
+
+**Solution**: Initialize the vault with 1 URSTOA from the foundation account:
+
+```pact
+(defun XM_InitialiseUrStoaVault (account:string)
+    @doc "Initializes the URSTOA-Vault with foundation as first staker"
+    (require-capability (GENESIS))
+    (UEV_MainChain)
+    (insert URV|UrStoaVault URSTOA-VAULT
+        {"rps"          : 0.0
+        ,"total-supply" : 1.0    ;; Bootstrap with 1 URSTOA
+        }
+    )
+    (insert URV|UrStoaVaultUser account
+        {"balance"  : 1.0        ;; Foundation stakes 1 URSTOA
+        ,"rps-debt" : 0.0
+        }
+    )
+)
+```
+
+### Unstake Constraint: Last Token Cannot Be Withdrawn
+
+To maintain vault viability forever, the unstake function enforces that **at least 1 URSTOA must remain staked**:
+
+```pact
+(defun C_URV|Unstake (account:string amount:decimal)
+    @doc "Unstakes URSTOA from the vault"
+    ...
+    ;; Critical check: ensure vault doesn't go to zero
+    (let
+        (
+            (new-vault-supply (- total-supply amount))
+        )
+        (enforce (>= new-vault-supply 1.0) 
+            "Cannot unstake - vault must maintain minimum 1 URSTOA supply")
+        ...
+    )
+)
+```
+
+**Examples**:
+
+| Vault Supply | Unstake Request | Result |
+|--------------|-----------------|--------|
+| 5.0 URSTOA | 4.0 URSTOA | ✅ Allowed (leaves 1.0) |
+| 5.0 URSTOA | 5.0 URSTOA | ❌ Rejected (would leave 0) |
+| 1.0 URSTOA | 0.5 URSTOA | ❌ Rejected (would leave 0.5 < 1.0) |
+| 1.0 URSTOA | Any amount | ❌ Rejected (cannot go below 1.0) |
+
+### Why This Matters
+
+If the vault ever reached 0 URSTOA supply:
+1. **Coinbase would break**: `C_URV|Inject` is called every block
+2. **Division by zero**: RPS calculation would fail
+3. **Chain halts**: No blocks could be mined
+
+By ensuring minimum 1 URSTOA, the vault is **permanently viable** from genesis onwards.
+
+---
+
 ## Foundation Pending Amount (FPA) System
 
 Since Yang emission happens on random chains (whichever chain mines a block), we need a mechanism to collect the 10% foundation share from all chains and distribute it to URSTOA holders on Chain 0.
