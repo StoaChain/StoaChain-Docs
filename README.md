@@ -22,7 +22,6 @@
 | [**Genesis System**](docs/chainweb-node/GENESIS_SYSTEM.md) | Genesis payload generation, transaction order, keysets |
 | [**Pact 4 Removal**](docs/chainweb-node/PACT4_REMOVAL.md) | Detailed log of Pact 4 code removal |
 | [**CW Tools**](docs/chainweb-node/CWTOOLS.md) | Command-line tools for Chainweb |
-| [**Rosetta API**](docs/chainweb-node/ROSETTA.md) | Rosetta API implementation |
 | [**Store**](docs/chainweb-node/STORE.md) | Database storage layer |
 
 ### AncientPact (Pact 5.4.1 Fork)

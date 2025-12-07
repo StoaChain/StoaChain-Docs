@@ -212,7 +212,6 @@ Detailed documentation is available in the following locations:
 | **Genesis System** | [`GENESIS_SYSTEM.md`](GENESIS_SYSTEM.md) | Genesis payload generation, transaction order, keysets |
 | **Pact 4 Removal** | [`PACT4_REMOVAL.md`](PACT4_REMOVAL.md) | Detailed log of Pact 4 code removal |
 | **CW Tools** | [`CWTOOLS.md`](CWTOOLS.md) | Command-line tools for Chainweb |
-| **Rosetta API** | [`ROSETTA.md`](ROSETTA.md) | Rosetta API implementation |
 | **Store** | [`STORE.md`](STORE.md) | Database storage layer |
 
 ---
