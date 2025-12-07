@@ -1,7 +1,7 @@
 # StoaChain Documentation
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/StoaChain/AncientStoa/master/chainweb-node/docs/assets/StoaLogo.png" width="200" height="200" alt="StoaChain Logo" title="StoaChain">
+<img src="assets/StoaLogo.png" width="200" height="200" alt="StoaChain Logo" title="StoaChain">
 </p>
 
 <h3 align="center">A Proof-of-Work Parallel-Chain Protocol</h3>
