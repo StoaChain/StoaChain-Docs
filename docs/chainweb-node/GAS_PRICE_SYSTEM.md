@@ -1,6 +1,14 @@
 # StoaChain Yin Earnings System (Dynamic Gas Price)
 
-This document describes the **Yin Earnings** mechanism - the gas-based income that miners earn from transaction execution, powered by StoaChain's dynamic minimum gas price system.
+This document describes the **Yin Earnings** mechanism — the gas-based income that miners earn from transaction execution.
+
+> ⚠️ **Not yet wired to the protocol.** The time-based dynamic minimum gas price (10,000 ANU → +1 ANU every 3 hours, capped at 400,000 ANU) is the **target design**. It is not yet enforced at the mempool / block-validation level on the live chain.
+>
+> **What the live chain does today:** it uses the upstream chainweb-node minimum gas price (`_configMinGasPrice = 1e-8`, defined in `src/Chainweb/Chainweb/Configuration.hs`). There is no per-block ramp applied by the Haskell mempool or validator.
+>
+> **What the coin module does today:** the coin module contains a Pact function that computes the intended ramp value (the design described below). It's usable from Pact, but nothing in the node's mempool-insertion or block-validation code path consults it as a floor yet.
+>
+> Wiring this ramp into the protocol is a planned upgrade. No target date has been published. Read the file paths and Haskell snippets below as design sketches for that wiring — the Haskell module they describe does not exist today.
 
 ---
 
@@ -29,12 +37,14 @@ Unlike Yang Emission (which mints new tokens), **Yin Earnings are not emissions*
 
 ---
 
-## Overview
+## Overview (target design — Pact-side exists, protocol wiring pending)
 
-StoaChain uses a **time-based dynamic minimum gas price** that:
+The target **time-based dynamic minimum gas price**:
 - Starts at **10,000 ANU** at genesis
 - Increases by **1 ANU** every **3 hours**
 - Caps at **400,000 ANU** (reached after ~133 years)
+
+The coin module already contains a Pact function that computes this value as a function of block time. The live chain does **not** use it as an enforced minimum — mempool insertion and block validation still apply the upstream static `1e-8` floor. Wiring the Pact-computed value into the protocol-level minimum check is a planned upgrade.
 
 ### ANU (Atomic Unit)
 
@@ -84,42 +94,26 @@ Else:
 
 ## Configuration
 
-### Genesis Time
+### Pact side — exists, callable, not enforced
 
-The genesis time must be configured in **TWO places** and **MUST MATCH**:
+The coin module (`pact/stoa-coin/new-coin.pact`) contains a function that computes the target minimum gas price as a function of block time (starting at 10,000 ANU, stepping by 1 ANU every 3 hours, capped at 400,000 ANU). You can call it from Pact to see the value the ramp *would* produce. The authoritative chain genesis time used for the ramp is the chain's `_genesisTime` (`2026-02-23T18:00:00.000000` UTC, defined in `src/Chainweb/Version/Stoa.hs`).
 
-| Location | File | Constant |
-|----------|------|----------|
-| **Pact** | `pact/coin-contract/stoa.pact` | `GENESIS-TIME` |
-| **Haskell** | `src/Chainweb/GasPrice.hs` | `stoaGenesisTime` |
+What's missing is the enforcement wiring: the mempool and block-validation paths still use the upstream static `_configMinGasPrice = 1e-8` as the floor. The Pact-computed ramp value is not consulted.
 
-**Current placeholder value**: `2026-01-01T00:00:00Z`
+### Haskell side — sketch for the wiring upgrade
 
-**Important Notes**:
-- Set this to a time **before** your planned chain launch
-- If the blockchain starts before genesis time, gas price = 10,000 ANU (minimum)
-- Update both files before chain launch!
-
-### Pact Constants (stoa.pact)
-
-```pact
-(defconst GENESIS-TIME              (time "2026-01-01T00:00:00Z"))
-(defconst GENESIS-MIN-GAS-PRICE     10000)      ; 10,000 ANU
-(defconst MAX-GAS-PRICE             400000)     ; 400,000 ANU
-(defconst GAS-PRICE-INTERVAL        10800.0)    ; 3 hours in seconds
-```
-
-### Haskell Constants (GasPrice.hs)
+Earlier drafts described a `src/Chainweb/GasPrice.hs` module with a `stoaGenesisTime` constant and an `assertMinGasPrice` validator. **That module does not exist today.** The shape a future wiring upgrade might take:
 
 ```haskell
+-- Hypothetical src/Chainweb/GasPrice.hs (not in the shipped code)
 stoaGenesisTime :: UTCTime
-stoaGenesisTime = parseTimeOrError True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" 
-    "2026-01-01T00:00:00Z"
+stoaGenesisTime = parseTimeOrError True defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+    "2026-02-23T18:00:00Z"
 
 genesisMinGasPriceANU :: Integer
 genesisMinGasPriceANU = 10_000
 
-maxGasPriceANU :: Integer  
+maxGasPriceANU :: Integer
 maxGasPriceANU = 400_000
 
 gasPriceIntervalSeconds :: Integer
@@ -212,38 +206,29 @@ Users can query the current minimum gas price via Pact:
 
 ---
 
-## Removed Components
+## Upstream behavior retained on the live chain
 
-The following static gas price components were **removed** from Kadena's original code:
+Earlier drafts of this document claimed that the static-gas-price machinery had been removed from the node. **That is not the case.** The live node keeps the upstream chainweb-node static gas price pathway intact:
 
-### Configuration.hs
-- Removed: `_configMinGasPrice` field
-- Removed: `configMinGasPrice` lens export
-- Removed: Default value `1e-8`
-- Removed: JSON encoding/parsing for `minGasPrice`
-- Removed: CLI option `--min-gas-price`
+- `src/Chainweb/Chainweb/Configuration.hs` still defines `_configMinGasPrice` (default `1e-8`).
+- Mempool insertion and block validation use that static floor.
+- There is no `src/Chainweb/GasPrice.hs` module with ramp logic, no `stoaGenesisTime`, no `assertMinGasPrice` that consults creation time.
 
-### InMemTypes.hs
-- Removed: `_inmemTxMinGasPrice` field from `InMemConfig`
-
-### Chainweb.hs
-- Removed: `GasPrice` parameter from `validatingMempoolConfig`
-- Removed: `_configMinGasPrice conf` from mempool config creation
+Any "Removed: `_configMinGasPrice` field" claim in earlier drafts was incorrect — do not reproduce it.
 
 ---
 
-## Files Modified
+## Files that would change if the ramp ships (design sketch)
 
-| File | Changes |
-|------|---------|
+These paths describe a hypothetical future implementation, not committed code:
+
+| File | Hypothetical change |
+|------|---------------------|
 | **NEW** `src/Chainweb/GasPrice.hs` | Dynamic gas price computation module |
-| `src/Chainweb/Mempool/InMem.hs` | Uses dynamic minimum based on TX creation time |
-| `src/Chainweb/Mempool/InMemTypes.hs` | Removed `_inmemTxMinGasPrice` field |
-| `src/Chainweb/Pact5/Validations.hs` | Added `assertMinGasPrice` validation |
-| `src/Chainweb/Chainweb.hs` | Removed static gas price from mempool config |
-| `src/Chainweb/Chainweb/Configuration.hs` | Removed all static gas price config |
-| `pact/coin-contract/stoa.pact` | Added gas price constants and functions |
-| `chainweb.cabal` | Added `Chainweb.GasPrice` module |
+| `src/Chainweb/Mempool/InMem.hs` | Use dynamic minimum based on TX creation time |
+| `src/Chainweb/Pact5/Validations.hs` | Add an `assertMinGasPrice` validation |
+| `pact/stoa-coin/new-coin.pact` | Add gas-price constants and query functions |
+| `chainweb.cabal` | Expose the new `Chainweb.GasPrice` module |
 
 ---
 
@@ -264,43 +249,32 @@ The following static gas price components were **removed** from Kadena's origina
 
 **Solution**: Same as above - use the current minimum gas price or higher.
 
-### Genesis Time Mismatch
+### Genesis Time Mismatch (obsolete — ramp not shipped)
 
-If Pact and Haskell have different genesis times, gas price calculations will differ, causing transactions to fail validation unexpectedly.
-
-**Solution**: Ensure both constants match exactly:
-- `stoa.pact`: `GENESIS-TIME`
-- `GasPrice.hs`: `stoaGenesisTime`
+The two-file-sync requirement does not apply to the live chain. There is only one authoritative genesis time (in `src/Chainweb/Version/Stoa.hs`), and the static `1e-8` floor does not depend on it.
 
 ---
 
 ## Comparison with Kadena
 
-| Aspect | Kadena | StoaChain |
-|--------|--------|-----------|
-| Minimum Gas Price | Static (`1e-8`) | Dynamic (time-based) |
-| Configuration | CLI/config file | Hardcoded + Pact |
-| Starting Price | Fixed | 10,000 ANU |
-| Price Increase | None | +1 ANU every 3 hours |
-| Maximum Price | None | 400,000 ANU |
-| Query Function | N/A | `UC_MinimumGasPriceSTOA` |
-
----
+| Aspect | Kadena | StoaChain (today) | StoaChain (proposed) |
+|--------|--------|-------------------|----------------------|
+| Minimum Gas Price | Static (`1e-8`) | Static (`1e-8`, upstream default) | Dynamic (time-based) |
+| Configuration | CLI/config file | CLI/config file (upstream) | Hardcoded + Pact |
+| Starting Price | Fixed | Fixed at `1e-8` | 10,000 ANU |
+| Price Increase | None | None | +1 ANU every 3 hours |
+| Maximum Price | None | None | 400,000 ANU |
+| Query Function | N/A | N/A | `UC_MinimumGasPriceSTOA` |
 
 ---
 
 ## Related Documentation
 
-- **Yang Emission**: `EMISSION_SYSTEM.md` - Deterministic block rewards (90/10 split)
-- **Genesis System**: `cwtools/ea/README.md` - Genesis payload generation
+- **Yang Emission**: [`EMISSION_SYSTEM.md`](EMISSION_SYSTEM.md) — Deterministic block rewards (90/10 split)
+- **Genesis System**: [`GENESIS_SYSTEM.md`](GENESIS_SYSTEM.md) — Genesis payload layout
+- **Pact 4 retrospective**: [`PACT4_REMOVAL.md`](PACT4_REMOVAL.md)
 
 ---
 
-## Date
-
-Last updated: December 2024
-
-## Attribution
-
-StoaChain Yin Earnings System - Dynamic gas pricing for miner income from transaction fees.
+*Last updated: 2026-04-19*
 

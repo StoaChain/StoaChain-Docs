@@ -1,25 +1,20 @@
 <p align="center">
-<img src="https://cdn.sanity.io/images/agrhq0bu/production/3914c91a76778ba6b2c774a8fb0c751272377cbb-2918x672.png" alt="Kadena" title="Kadena">
+<img src="../../assets/StoaLogo.png" width="200" height="200" alt="StoaChain Logo" title="StoaChain">
 </p>
 
 <p>&nbsp;</p>
 
-# AncientPact: Pact 5.4.1 for StoaChain
+# Pact 5 on StoaChain
 
-> **Note**: This is **AncientPact**, the StoaChain fork of Pact 5. It includes StoaChain-specific extensions to the `chain-data` native function for emission calculations.
+> **Supersedes earlier drafts.** Earlier versions of this README called the StoaChain Pact build "AncientPact 5.4.1" and presented two `chain-data` extensions (`global-supply-register`, `external-fpa`) as shipped. **Neither statement is accurate.** StoaChain runs **stock upstream Pact 5.4** — no fork, no name change, no `chain-data` extensions. The Pact source is pulled in via the source-repository-package pin in the node's `cabal.project`.
 
-## StoaChain Extensions
+## No StoaChain-specific Pact changes
 
-AncientPact extends the standard Pact `chain-data` with two additional fields:
+StoaChain uses unmodified upstream Pact 5.4 (the final Pact release before Kadena LLC dissolved). There are no StoaChain-specific additions to `PublicData`, no new `chain-data` fields, and no patches to the core evaluator. Everything StoaChain-specific lives in **Pact modules** (notably the coin module at `pact/stoa-coin/new-coin.pact` in the node repo) — not in the Pact language itself.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `global-supply-register` | Decimal | Sum of LocalSupply from all chains. Used for STOA emission calculation. |
-| `external-fpa` | Decimal | Sum of FoundationPending from chains 1-9 (Chain 0 only). Used for foundation share distribution. |
+The reason: the StoaChain coin module's emission formula is entirely calendar-based (`coin.URC_Emissions` computes per-block emission from the current year's allocation and a Gregorian-leap-aware day count). Because it never needs a global-supply aggregate at emission time, no Pact-level extension was required.
 
-These fields are injected by the StoaChain node runtime before coinbase execution. They are **not available** in standard Pact REPL unless mocked with `env-chain-data`.
-
-See [`docs/builtins/General/chain-data.md`](docs/builtins/General/chain-data.md) for detailed documentation.
+See [`chain-data.md`](chain-data.md) for the `chain-data` native reference as it applies on StoaChain (stock behavior).
 
 ---
 

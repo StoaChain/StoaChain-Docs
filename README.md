@@ -6,11 +6,11 @@
 
 <h3 align="center">A Proof-of-Work Parallel-Chain Protocol</h3>
 
-> **StoaChain** is a next-generation blockchain forked from Kadena's Chainweb protocol, featuring a custom economic model, streamlined architecture, and Pact 5 from genesis.
+> **StoaChain** is a blockchain built on Kadena's Chainweb protocol. It is a **software fork** of `chainweb-node` — a minimal set of modifications over upstream, running as its own independent blockchain with its own genesis (2026-02-23). It is **not a chain fork** of Kadena: it shares no ledger history with Kadena's mainnet.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Built with Haskell](https://img.shields.io/badge/Built%20with-Haskell-5e5086.svg)](https://www.haskell.org/)
-[![Pact Version](https://img.shields.io/badge/Pact-5.0-blue.svg)](https://pact-language.readthedocs.io/)
+[![Pact Version](https://img.shields.io/badge/Pact-5.4-blue.svg)](https://pact-language.readthedocs.io/)
 
 ---
 
@@ -24,7 +24,7 @@
 - [STOA Token Economics](#stoa-token-economics)
   - [Emission Formula](#emission-formula)
   - [URSTOA Token](#urstoa-token)
-  - [URSTOA-Vault (Staking)](#urstoa-vault-staking)
+  - [UrStoaVault (Staking)](#urstoavault-staking)
   - [Chain-Data Extensions](#chain-data-extensions)
 - [Governance](#governance)
 - [Pre-Launch Configuration](#pre-launch-configuration)
@@ -36,13 +36,14 @@
 
 ## Overview
 
-StoaChain is a **braided, parallelized Proof-of-Work blockchain** built on the Chainweb consensus protocol. It inherits Kadena's innovative multi-chain architecture while introducing significant improvements:
+StoaChain is a **braided, parallelized Proof-of-Work blockchain** built on the Chainweb consensus protocol. It inherits Kadena's multi-chain architecture with the following modifications:
 
-- **STOA Token**: A new native token with deterministic emission mechanics
-- **Pact 5 Exclusive**: Uses only the latest Pact smart contract language from genesis
-- **Simplified Governance**: 7 Stoa Masters keysets control module upgrades
-- **No Allocations**: Dynamic emission replaces CSV-based vesting schedules
-- **Streamlined Codebase**: Removed legacy Pact 4 execution code (~3,300 lines)
+- **STOA Token**: A new native token with deterministic emission computed in Pact
+- **Pact 5.4 on-chain**: All live on-chain execution uses Pact 5.4 (the final Pact release)
+- **Raised gas limits**: 1.6M default / 2M max block gas (vs upstream 150k/180k)
+- **New ChainwebVersion**: A single `stoa` network with its own genesis
+
+> **Note on codebase state** — The node repo still carries Pact 4 infrastructure internally (extraction was attempted and abandoned because Pact 4 and Pact 5 share code paths). The *live chain* runs Pact 5.4 regardless. See [docs/chainweb-node/PACT4_REMOVAL.md](docs/chainweb-node/PACT4_REMOVAL.md) for the retrospective.
 
 ### What is Chainweb?
 
@@ -61,22 +62,21 @@ Read the original whitepapers:
 
 | Aspect | Kadena Chainweb | StoaChain |
 |--------|-----------------|-----------|
-| **Native Token** | KDA (`coin` module) | STOA (`STOA` module) |
-| **Token Interface** | `fungible-v2` + `fungible-xchain-v1` | `StoaFungibleV1` (merged) |
-| **TRANSFER Capability** | Managed (`@managed`) | Non-managed (simplified) |
-| **Governance** | `false` (always true) | 7 Stoa Masters keysets |
+| **Native Token** | KDA (`coin` module) | STOA (`stoa-ns.*` modules, see governance note) |
+| **Token Interface** | `fungible-v2` + `fungible-xchain-v1` | `stoa-ns.stoic-fungible-v1` / `stoa-ns.fungible-xchain-v1` |
+| **TRANSFER Capability** | Managed (`@managed`) | Non-managed (simplified, validations preserved) |
 | **Main Namespace** | `kadena` | `stoa-ns` |
-| **Pact Version** | Pact 4 → Pact 5 migration | Pact 5 from genesis |
-| **Emission Model** | CSV-based allocations + miner rewards | Deterministic formula |
-| **Initial Supply** | Complex vesting schedules | Single genesis mint |
-| **Networks** | mainnet01, testnet04, development | stoamainnet01, stoatestnet02, stoadevnet03 |
-| **Chain Count** | 20 chains (mainnet) | 10 chains (mainnet), 3 chains (testnet/devnet) |
-| **Block Gas Limit** | 180k max, 150k default | 500k max, 400k default |
-| **Gas Price** | Static minimum (1e-8 KDA) | Dynamic minimum (time-based) |
+| **Pact Version (on-chain)** | Pact 4 → Pact 5 migration | Pact 5.4 (node retains Pact 4 infrastructure internally) |
+| **Emission Model** | CSV-based (`rewards/miner_rewards.csv`) | Computed inside Pact coin module; CSV retained in code but its value is ignored |
+| **Initial Supply** | Complex vesting schedules | Genesis mint (final amounts configured pre-launch in `pact/genesis/stoa/`) |
+| **Networks** | mainnet01, testnet04, development, recap-development | Single network: `stoa` |
+| **Chain Count** | 20 chains (mainnet) | 10 chains (Petersen graph) |
+| **Block Gas Limit** | 180k max / 150k default | **2M max / 1.6M default** (production nodes run at 2M) |
+| **Gas Price** | Static minimum (1e-8 KDA) | Static minimum (inherited from upstream). Periodic ramp is a planned roadmap item, not shipped |
 
-### StoaFungibleV1 Interface
+### Fungible interfaces on the live chain
 
-StoaChain uses a simplified `StoaFungibleV1` interface that merges `fungible-v2` and `fungible-xchain-v1` into a single interface. A key simplification is the **removal of managed capabilities** from the TRANSFER function.
+The live on-chain module layout (visible on the explorer) uses `stoa-ns`-namespaced interfaces — notably `stoa-ns.stoic-fungible-v1` and `stoa-ns.fungible-xchain-v1` (plus `stoa-ns.ur-stoic-fungible-v1`, `stoa-ns.stoic-predicates`, `stoa-ns.stoic-xchain`, `stoa-ns.fungible-v1`, and `stoa-ns.gas-payer-v1`). These live modules have **diverged from the genesis source** in `pact/stoa-coin/new-coin.pact` via post-genesis upgrades, including bug-fix changes. The authoritative source for live behavior is the chain itself — fetch via `describe-module` from a node, or inspect the explorer.
 
 **Why Non-Managed TRANSFER?**
 - You cannot sign a transaction with an "empty" key (no capabilities) and add the same key with a capability
@@ -87,19 +87,18 @@ StoaChain uses a simplified `StoaFungibleV1` interface that merges `fungible-v2`
 
 ---
 
-## Networks
+## Network
 
-StoaChain supports **three networks**:
+StoaChain runs **one network**, named `stoa`:
 
-| Network | Version Code | Chains | Graph Type | Purpose |
-|---------|--------------|--------|------------|---------|
-| **StoaMainnet01** | `0x00000015` | 10 | Petersen | Production network |
-| **StoaTestnet02** | `0x00000016` | 3 | Triangle | Testing network |
-| **StoaDevnet03** | `0x00000017` | 3 | Triangle | Development (PoW disabled) |
+| Network | Version Code | Chains | Graph Type | Block Delay |
+|---------|--------------|--------|------------|-------------|
+| **stoa** | `0x0000000A` (= 10) | 10 | Petersen | 30 s |
 
-### Chain Graph Configurations
+Defined in `src/Chainweb/Version/Stoa.hs`. The CLI flag is `--chainweb-version stoa`. There is no separate testnet or devnet ChainwebVersion — development and testing happen against the same `stoa` network.
 
-**Petersen Graph (10 chains - Mainnet)**
+### Chain Graph — Petersen (10 chains)
+
 ```
     0 --- 5
    /|\   /|\
@@ -114,11 +113,23 @@ StoaChain supports **three networks**:
     4 --- 9
 ```
 
-**Triangle Graph (3 chains - Testnet/Devnet)**
-```
-    0
-   / \
-  1---2
+Each chain has exactly 3 neighbours (degree-3 regular graph).
+
+### Public nodes
+
+Mainnet is currently served by two operator nodes over HTTPS (reverse-proxied on port 443 in front of the chainweb service API):
+
+| URL | Role |
+|-----|------|
+| `https://node1.stoachain.com` | Canonical **bootstrap** peer (listed in `_versionBootstraps` in `src/Chainweb/Version/Stoa.hs` as `node1.stoachain.com:1789`) |
+| `https://node2.stoachain.com` | Additional public endpoint. Not currently wired in as a protocol-level bootstrap peer |
+
+Liveness check:
+
+```bash
+curl -s https://node1.stoachain.com/info
+# {"nodeVersion":"stoa","nodeNumberOfChains":10,"nodeBlockDelay":30000000,
+#  "nodePackageVersion":"2.32.0", ...}
 ```
 
 ---
@@ -131,29 +142,25 @@ StoaChain supports **three networks**:
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                    Pact 5 Execution Layer                       │    │
+│  │                  Pact 5.4 Execution Layer                       │    │
 │  │  src/Chainweb/Pact5/                                            │    │
 │  │  ├── TransactionExec.hs    (transaction execution)              │    │
-│  │  ├── Templates.hs          (STOA tx templates)                  │    │
+│  │  ├── Templates.hs          (tx templates)                       │    │
 │  │  ├── SPV.hs                (cross-chain verification)           │    │
 │  │  └── Backend/ChainwebPactDb.hs (database layer)                 │    │
+│  │                                                                 │    │
+│  │  Pact 4 infrastructure (src/Chainweb/Pact4/) is still present   │    │
+│  │  in the node code but is not exercised by the live chain.       │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                              │                                          │
 │                              ▼                                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                    STOA Token Contract                          │    │
-│  │  pact/coin-contract/stoa.pact                                   │    │
-│  │  ├── STOA Submodule                                             │    │
-│  │  │   ├── XM_StoaCoinbase      (block rewards)                   │    │
-│  │  │   ├── C_Transfer           (transfers)                       │    │
-│  │  │   └── C_TransferAcross     (cross-chain)                     │    │
-│  │  ├── URSTOA Submodule (Chain 0 only)                            │    │
-│  │  │   └── C_UR|Transfer        (URSTOA transfers)                │    │
-│  │  ├── URSTOA-Vault Submodule (Chain 0 only)                      │    │
-│  │  │   ├── C_URV|Stake          (stake URSTOA)                    │    │
-│  │  │   ├── C_URV|Unstake        (unstake URSTOA)                  │    │
-│  │  │   └── C_URV|Collect        (claim STOA rewards)              │    │
-│  │  └── A_InitialiseStoaChain    (genesis initialization)          │    │
+│  │          Genesis Coin Contract (single module)                  │    │
+│  │  pact/stoa-coin/new-coin.pact                                   │    │
+│  │                                                                 │    │
+│  │  Post-genesis upgrades have introduced the live `stoa-ns.*`     │    │
+│  │  module layout visible on the explorer (stoic-fungible-v1,      │    │
+│  │  stoic-xchain, ur-stoic-fungible-v1, etc.).                     │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                              │                                          │
 │                              ▼                                          │
@@ -161,8 +168,8 @@ StoaChain supports **three networks**:
 │  │                    Core Services                                │    │
 │  │  src/Chainweb/                                                  │    │
 │  │  ├── Pact/PactService.hs  (Pact service orchestration)          │    │
-│  │  ├── Version/StoaChain.hs (network definitions)                 │    │
-│  │  └── GasPrice.hs          (dynamic gas pricing)                 │    │
+│  │  ├── Version/Stoa.hs      (network definition: `stoa`)          │    │
+│  │  └── Chainweb/Configuration.hs (block gas limit: 1.6M default)  │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -172,49 +179,51 @@ StoaChain supports **three networks**:
 
 ## Documentation Index
 
-### AncientStoa (Chainweb Node)
+### Chainweb Node (StoaChain)
 
 | Document | Description |
 |----------|-------------|
 | [**Full Technical README**](docs/chainweb-node/README.md) | Complete technical documentation with build instructions |
-| [**🚀 Node Launch Checklist**](docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md) | **Pre-launch configuration guide** - Genesis time, keysets, bootstrap nodes |
-| [**Yang Emission System**](docs/chainweb-node/EMISSION_SYSTEM.md) | Deterministic emission formula, 90/10 split, URSTOA-Vault, global supply registry |
-| [**Yin Earnings (Gas)**](docs/chainweb-node/GAS_PRICE_SYSTEM.md) | Dynamic minimum gas price, time-based increases |
+| [**Node Launch Checklist**](docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md) | Pre-launch configuration guide — genesis time, keysets, bootstrap |
+| [**Yang Emission System**](docs/chainweb-node/EMISSION_SYSTEM.md) | Emission formula computed in Pact (CSV retained but ignored) |
+| [**Yin Earnings (Gas)**](docs/chainweb-node/GAS_PRICE_SYSTEM.md) | Minimum gas price — current state and planned periodic ramp (roadmap) |
 | [**Genesis System**](docs/chainweb-node/GENESIS_SYSTEM.md) | Genesis payload generation, transaction order, keysets |
-| [**Pact 4 Removal**](docs/chainweb-node/PACT4_REMOVAL.md) | Detailed log of Pact 4 code removal |
+| [**Pact 4 Removal — Retrospective**](docs/chainweb-node/PACT4_REMOVAL.md) | Why Pact 4 extraction was attempted and abandoned |
 
-### AncientPact (Pact 5.4.1 Fork)
+### Pact 5.4
 
 | Document | Description |
 |----------|-------------|
-| [**Main README**](docs/pact-5/README.md) | AncientPact overview and StoaChain extensions |
-| [**chain-data Extensions**](docs/pact-5/chain-data.md) | Documentation for `global-supply-register` and `external-fpa` fields |
+| [**Main README**](docs/pact-5/README.md) | Overview — StoaChain runs stock upstream Pact 5.4, no fork, no `chain-data` extensions |
+| [**chain-data reference**](docs/pact-5/chain-data.md) | Reference for the (unmodified) `chain-data` native as used on StoaChain |
 
 ---
 
 ## STOA Token Economics
 
-### Emission Formula
+### Emission — computed entirely in Pact
 
-STOA uses a **deterministic emission formula** instead of CSV-based allocations:
+STOA emission is computed inside the Pact coin module by the function `coin.URC_Emissions`, which returns two values per block:
 
 ```
-Daily Emission = (Ceiling - GlobalSupply) / EMISSION_SPEED
-Block Emission = Daily Emission / BPD
+[<block-emission> <urv-emission>]
+
+  <block-emission>  →  paid to the miner (90% share, same across all chains)
+  <urv-emission>    →  credited to the UrStoaVault (10% share, distributes to URSTOA stakers)
 ```
 
-Where:
-- `Ceiling` = Initial ceiling (40× Genesis Supply), increases by 1M STOA annually
-- `GlobalSupply` = Total STOA across all chains
-- `EMISSION_SPEED` = 25,000 (divisor)
-- `BPD` = 2,880 (blocks per day at 30-second intervals)
+The formula derives a **yearly allocation** from a Gregorian-leap-aware day count, then splits it across the blocks expected in that year (`BPD × days-in-year × chains`) to produce the per-block per-chain amount. The original recursive form was rewritten into a linear equivalent so Pact can evaluate it without iteration. Each year rolls over to a smaller allocation.
+
+Because the formula needs only calendar arithmetic and never queries a global-supply aggregate per block, **Pact 5 is used stock** — no chain-data extensions, no Haskell-side supply register. Per-chain supply is still tracked inside the coin module via a dedicated table that mint/burn paths update; the explorer reads that table to display live per-chain supply.
+
+> **About the CSV** — The node code still contains `rewards/miner_rewards.csv` (retained because extracting the CSV machinery cleanly was not feasible). **It is vestigial.** The value the node would otherwise serve from it is ignored; the amount actually minted is the Pact-computed amount. "CSV was removed" is not an accurate description of the code — "CSV is kept but not authoritative" is.
 
 ### Block Emission Split
 
 | Recipient | Share | Description |
 |-----------|-------|-------------|
-| **Miner** | 90% | Direct block reward (Yang Emission) |
-| **URSTOA-Vault** | 10% | Distributed to URSTOA stakers |
+| **Miner** | 90% | Direct block reward (Yang Emission `block-emission`) |
+| **UrStoaVault** | 10% | Credited per block (`urv-emission`); distributed to URSTOA stakers via RPS |
 
 ### Miner Income Sources
 
@@ -225,76 +234,79 @@ Where:
 
 ### Genesis Supply
 
-At genesis, **Chain 0** receives all initial supply via `A_InitialiseStoaChain`:
-- **12M STOA** minted to the foundation account
-- **1M URSTOA** minted to the foundation account
-- **URSTOA-Vault** initialized with foundation as first staker
+At genesis, **Chain 0** receives all initial supply.
 
-On Chains 1-9, the genesis transaction is a no-op.
+**STOA: 16,000,000 total**, split across genesis accounts as:
+
+| Allocation | Amount | Purpose |
+|------------|--------|---------|
+| ICO | 10,000,000 STOA | Held in the foundation account until the ICO finalises, then distributed |
+| Foundation | 2,000,000 STOA | Foundation treasury |
+| Ouronet migration | 4,000,000 STOA | Migration allocation for holders from the prior Ouronet project (which ran on Kadena) |
+
+**URSTOA: 1,000,000 total** (fixed, minted at genesis on Chain 0, 3 decimal precision):
+
+| Allocation | Amount | Purpose |
+|------------|--------|---------|
+| Founders | 250,000 URSTOA | Split between the blockchain founders |
+| ICO sale | 250,000 URSTOA | 1 URSTOA per $5 contributed to the ICO |
+| Foundation | 500,000 URSTOA | Foundation reserve |
+
+On Chains 1-9, the genesis transaction is a no-op (all initial supply is minted on Chain 0).
 
 ### URSTOA Token
 
-**URSTOA** (UR-STOA) is a secondary token that acts as a **perpetual virtual miner**, enabling holders to earn 10% of all Yang (block) emissions without performing any actual mining work.
+**URSTOA** is a secondary token defined inside the coin module (not a separate module) that acts as a **perpetual virtual miner**: holders who stake URSTOA in the UrStoaVault earn a proportional share of 10% of every block's Yang emission without doing any actual mining work. URSTOA is live on-chain today — the explorer exposes a "UrStoa Rich List" and a "Vault Participation" tab.
 
 | Property | Value |
 |----------|-------|
 | **Total Supply** | 1,000,000 URSTOA (fixed, minted at genesis) |
 | **Precision** | 3 decimal places (0.001 URSTOA minimum) |
 | **Chain Restriction** | **Chain 0 only** |
+| **Interface** | `stoa-ns.ur-stoic-fungible-v1` |
 | **Purpose** | Staking to earn 10% of STOA emissions |
 
 #### The Virtual Mining Concept
 
-URSTOA represents **fractional ownership of perpetual mining rights**. By staking URSTOA in the Vault, holders become "virtual miners" who collectively receive 10% of every block's emissions—distributed proportionally based on their stake.
+URSTOA represents **fractional ownership of perpetual mining rights**. By staking URSTOA in the UrStoaVault, holders become "virtual miners" who collectively receive 10% of every block's emissions — distributed proportionally based on their stake.
 
-### URSTOA-Vault (Staking)
+### UrStoaVault (Staking)
 
-The **URSTOA-Vault** is a staking mechanism where URSTOA holders stake their tokens to earn their proportional share of the 10% foundation portion of block emissions.
+The **UrStoaVault** lives on Chain 0 and is the sink for the `urv-emission` returned by `coin.URC_Emissions` each block. URSTOA holders stake into the vault to earn a proportional share of the 10% Yang-emission credit. Distribution uses a standard **Reward Per Share (RPS)** model for O(1) per-staker accounting:
 
-#### How Virtual Mining Works
+1. When STOA is credited to the vault, `RPS += credited_amount / total_staked_urstoa`.
+2. A user's pending reward = `user_stake × (current_RPS − user_last_RPS)`.
+3. No loops — complexity is independent of staker count.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    Block Emission Flow                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│   Block Mined → Yang Emission Calculated                            │
+│   Block mined on chain C → coin.URC_Emissions returns               │
+│     [block-emission, urv-emission]                                  │
 │                     │                                               │
 │                     ▼                                               │
 │        ┌───────────────────────────┐                                │
-│        │    90% → Miner Account    │                                │
+│        │ block-emission → miner    │    (90% of Yang — all chains)  │
 │        └───────────────────────────┘                                │
 │                     │                                               │
 │                     ▼                                               │
 │        ┌───────────────────────────┐                                │
-│        │   10% → URSTOA-Vault      │  (Miner injects on Chain 0)    │
-│        └───────────────────────────┘                                │
+│        │ urv-emission → UrStoaVault │   (10% of Yang — settled      │
+│        │ (on Chain 0)              │    per the coin module's       │
+│        └───────────────────────────┘    emission code)              │
 │                     │                                               │
 │                     ▼                                               │
 │        ┌───────────────────────────┐                                │
-│        │ RPS Update → All Stakers  │  (Rewards accrue instantly)    │
-│        │ earn proportional share   │                                │
+│        │ RPS update — all stakers  │                                │
+│        │ accrue proportionally     │                                │
 │        └───────────────────────────┘                                │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-#### RPS (Reward Per Share) Mechanism
-
-The Vault uses a **Reward Per Share** model for gas-efficient reward distribution:
-
-1. When STOA is injected, `RPS += injected_amount / total_staked_urstoa`
-2. User's pending rewards = `user_stake × (current_RPS - user_last_RPS)`
-3. No loops needed—O(1) complexity regardless of staker count
-
-### Chain-Data Extensions
-
-StoaChain extends Pact's `chain-data` with two new fields (injected by the node before coinbase execution):
-
-| Field | Type | Available On | Description |
-|-------|------|--------------|-------------|
-| `global-supply-register` | Decimal | All chains | Sum of `LocalSupply` from all chains |
-| `external-fpa` | Decimal | Chain 0 only | Sum of `FoundationPending` from chains 1-9 |
+> The UrStoaVault logic was slightly incorrect in the genesis coin module and has since been corrected via a post-genesis module upgrade. The live behavior is authoritative — fetch the coin module via `describe-module` or the explorer if you need to inspect the corrected logic.
 
 ---
 
@@ -302,70 +314,36 @@ StoaChain extends Pact's `chain-data` with two new fields (injected by the node 
 
 ### Namespace Structure
 
-StoaChain uses the `stoa-ns` namespace (replacing Kadena's `kadena` namespace):
+StoaChain uses the `stoa-ns` namespace (replacing Kadena's `kadena` namespace). On-chain, the live `stoa-ns` module set is visible on the explorer and includes modules such as `stoic-predicates`, `stoic-xchain`, `stoic-fungible-v1`, `ur-stoic-fungible-v1`, `fungible-v1`, `fungible-xchain-v1`, and `gas-payer-v1`.
 
-```
-stoa-ns/
-├── foundation-keyset
-├── stoa_master_one
-├── stoa_master_two
-├── stoa_master_three
-├── stoa_master_four
-├── stoa_master_five
-├── stoa_master_six
-└── stoa_master_seven
-```
+### Keyset governance
 
-### 7 Stoa Masters
+The coin module is controlled by **7 Stoa Masters keysets** — `stoa-ns.stoa_master_one` through `stoa-ns.stoa_master_seven` — combined with `enforce-one`, so any 1-of-7 master keyset can authorise governance actions on the coin module.
 
-The STOA module is governed by 7 keysets. **Any one** of the 7 masters can authorize governance actions (module upgrades, etc.).
+Separately, the `stoa-ns`, `user`, and `free` namespaces are administered via an `ns-admin-keyset` / `ns-operate-keyset` pair defined in the genesis YAMLs. Those keysets gate namespace operations; they are not the coin-module governance.
+
+A `stoa-foundation` account holds the foundation's genesis STOA allocations (including the 10M held until the ICO finalises) and is controlled by a foundation keyset.
 
 ---
 
 ## Pre-Launch Configuration
 
-### 🚀 Centralized Configuration (Recommended)
+> ⚠️ **Historical note.** Earlier versions of this README documented a centralised-configuration system based on `stoachain-config.yaml` and `scripts/apply-config.sh`. **That tooling does not exist in the current node repo.** The live chain is deployed with `deploy.sh`, `run-stoa.sh`, and a `stoa-node.service` systemd unit. The per-file configuration points (genesis time, keysets, etc.) are still documented in [`docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md`](docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md), but must be edited directly — there is no single-file apply-all script.
 
-Instead of manually editing multiple files, use the **centralized configuration system**:
+Generate genesis payloads and build:
 
-**Step 1: Edit the master config file**
-```bash
-nano stoachain-config.yaml
-```
-
-This single YAML file contains ALL settings:
-- Genesis time
-- Token economics (supply, ceiling)
-- Foundation keyset (account + keys)
-- 7 Stoa Masters keysets
-- Namespace admin/operate keysets
-- Gas price settings
-
-**Step 2: Apply configuration to all files**
-```bash
-# Preview what will change
-./scripts/apply-config.sh --dry-run
-
-# Apply changes to all files
-./scripts/apply-config.sh
-```
-
-**Step 3: Generate genesis payloads and build**
 ```bash
 cd cwtools && cabal run ea
 cd .. && cabal build chainweb-node
 ```
 
-> 📋 **Full Documentation**: See [`docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md`](docs/chainweb-node/NODE_LAUNCH_CHECKLIST.md) for the complete pre-launch guide.
-
 ---
 
-## Source Repositories
+## Source Repository
 
-> ⚠️ **Note**: The source repositories are currently private. This documentation repository provides public access to the project documentation.
+The StoaChain node source lives at [`github.com/StoaChain/stoa-chain`](https://github.com/StoaChain/stoa-chain.git) (referenced from `deploy.sh`). It is the repo that builds the binary running on `node1.stoachain.com` and `node2.stoachain.com`.
 
-- **AncientStoa** (Chainweb Node): StoaChain node implementation
-- **AncientPact** (Pact 5.4.1): Pact smart contract language fork with StoaChain extensions
+**Pact**: StoaChain uses stock upstream Pact 5.4 — no fork, no `chain-data` extensions. The Pact source-repository-package is pinned in `cabal.project`. Earlier drafts of these docs referred to a StoaChain-specific "AncientPact" fork with extended `chain-data` fields (`global-supply-register`, `external-fpa`); those drafts are wrong and are being corrected.
 
 ---
 
@@ -403,4 +381,4 @@ The Admin secluded himself within this temporal bubble with a laptop and a fuel-
 
 *StoaChain - Building the future of decentralized computing*
 
-*Last Updated: December 2025*
+*Last Updated: 2026-04-19*

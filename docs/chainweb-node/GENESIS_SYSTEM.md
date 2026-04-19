@@ -5,7 +5,15 @@
 
 > **📖 Main Documentation**: See the [main README](../../README.md) for an overview of StoaChain.
 
-This directory contains the **Ea** tool, which generates genesis block payloads for StoaChain networks.
+This directory contains the **Ea** tool, which generates genesis block payloads for StoaChain.
+
+> ⚠️ **Corrections from earlier drafts (still applicable):**
+>
+> - **StoaChain is a single network**, not three. The live chain runs one `ChainwebVersion` called `stoa` (version code `0x0000000A`, 10 chains, Petersen graph, 30 s block delay) defined in `src/Chainweb/Version/Stoa.hs`.
+> - **Genesis time** on the live chain is `2026-02-23T18:00:00.000000` UTC (`_genesisTime` in `src/Chainweb/Version/Stoa.hs`).
+> - **Paths**: genesis Pact sources live under `pact/genesis/stoa/`; the STOA coin module is `pact/stoa-coin/new-coin.pact`.
+> - **No `stoaGenesisTime` / `GENESIS-TIME` two-file sync**: the dynamic gas-price ramp has not shipped at the protocol level. See [`GAS_PRICE_SYSTEM.md`](GAS_PRICE_SYSTEM.md).
+> - **Pact is stock**: StoaChain uses unmodified upstream Pact 5.4. No `chain-data` extensions (no `global-supply-register`, no `external-fpa`), no `Chainweb.Pact.GlobalSupply` Haskell module. Emission is computed entirely inside the coin module using a calendar-based formula that doesn't need a global-supply aggregate per block.
 
 ## Overview
 
@@ -15,122 +23,72 @@ The genesis block (block height 0) is the foundational block of a blockchain. It
 - The STOA token contract
 - Gas payer contract
 
-StoaChain supports **three networks**:
+StoaChain ships a single network:
 
-| Network | Version Name | Chains | Graph Type | Purpose |
-|---------|--------------|--------|------------|---------|
-| **Mainnet** | `stoamainnet01` | 10 | Petersen | Production network |
-| **Testnet** | `stoatestnet02` | 3 | Triangle | Testing network |
-| **Devnet** | `stoadevnet03` | 3 | Triangle | Development network |
+| Network | Version Name | Version Code | Chains | Graph | Block Delay |
+|---------|--------------|--------------|--------|-------|-------------|
+| **StoaChain** | `stoa` | `0x0000000A` (10) | 10 | Petersen | 30 s |
+
+The `stoatestnet02` / `stoadevnet03` names that appeared in earlier drafts are not present in the node code. Local testing uses the same `stoa` version.
 
 ## Directory Structure
 
 ```
-chainweb-node/
+stoa-chain/
 ├── cwtools/ea/
 │   ├── Ea.hs              # Main genesis generator
 │   ├── Ea/Genesis.hs      # Genesis transaction definitions
-│   └── README.md          # This file
+│   └── README.md          # Ea reference
 │
 ├── pact/
-│   ├── genesis/
-│   │   ├── mainnet/       # Mainnet genesis config (10 chains)
-│   │   │   ├── ns.yaml              # Namespace configuration
-│   │   │   └── stoa-masters.yaml    # 7 governance keysets
-│   │   ├── testnet/       # Testnet genesis config (3 chains)
-│   │   │   ├── ns.yaml
-│   │   │   └── stoa-masters.yaml
-│   │   └── devnet/        # Devnet genesis config (3 chains)
-│   │       ├── ns.yaml
-│   │       └── stoa-masters.yaml
+│   ├── genesis/stoa/      # Genesis payloads for the stoa network
+│   │                      # (one YAML/pact set per chain, 0–9)
 │   │
 │   ├── namespaces/
 │   │   └── ns-install.pact    # Namespace module (creates stoa-ns, user, free)
 │   │
-│   ├── stoa-masters/
-│   │   └── stoa-masters.pact  # 7 governance keyset definitions
-│   │
-│   ├── coin-contract/
-│   │   ├── stoa.pact                  # STOA token module (includes URSTOA & Vault)
-│   │   ├── stoa-install.pact          # Table creation (7 tables)
-│   │   ├── stoa-initialise.yaml       # Genesis initialization
-│   │   ├── load-stoa-interface.yaml   # Loads StoaFungibleV1
-│   │   ├── load-stoa-contract.yaml    # Loads STOA module
-│   │   ├── install-stoa-contract.yaml # Creates tables
-│   │   └── v1/
-│   │       ├── StoaFungibleV1.pact    # Token interface
-│   │       └── stoa.pact              # Versioned STOA module
-│   │
-│   └── gas-payer/
-│       └── load-gas-payer.yaml        # Gas payer contract
+│   └── stoa-coin/
+│       └── new-coin.pact      # STOA coin module (single file, used at genesis)
 │
 └── src/Chainweb/
     ├── Version/
-    │   └── StoaChain.hs   # Network version definitions
+    │   └── Stoa.hs       # stoa network version definition
     └── BlockHeader/Genesis/
-        └── *.hs           # Generated payload modules (by Ea)
+        └── *.hs          # Generated payload modules (by Ea)
 ```
+
+The `pact/coin-contract/v1/StoaFungibleV1.pact` / `pact/stoa-masters/` / `pact/gas-payer/` layouts shown in earlier drafts do not match the live tree — they described a planned rewrite that was not landed. Use `find` / `ls` against the node repo to get the current tree before documenting file-by-file structure.
 
 ## Genesis Transaction Order
 
-The genesis block executes transactions in the following order:
+The genesis block executes transactions in this order. Authoritative source is `pact/genesis/stoa/` plus `pact/stoa-coin/new-coin.pact` in the node repo; the sketch below describes the shape.
 
-1. **Namespace Module** (`ns-install.pact`)
-   - Defines the `ns` module for namespace management
-   - Creates three namespaces:
-     - `stoa-ns` - The main StoaChain namespace (controlled by ns-operate-keyset)
-     - `user` - Open namespace for user contracts
-     - `free` - Open namespace for free contracts
+1. **Namespace module** (`pact/namespaces/ns-install.pact`)
+   - Defines the `ns` module for namespace management.
+   - Creates namespaces: `stoa-ns` (the main StoaChain namespace), `user`, `free`.
 
-2. **Stoa Masters Keysets** (`stoa-masters.pact`)
-   - Enters the `stoa-ns` namespace
-   - Defines 7 governance keysets:
-     - `stoa-ns.stoa_master_one` through `stoa-ns.stoa_master_seven`
-   - These keysets control the STOA module governance
+2. **Interfaces** (under `stoa-ns`)
+   - `stoic-predicates` — custom keyset predicates (e.g., `5-of-9`).
+   - `stoic-xchain` — autonomous accounts that pay for on-chain cross-chain transfers.
+   - `stoic-fungible-v1` — StoaChain's equivalent of `fungible-v2`.
+   - `ur-stoic-fungible-v1` — interface for the URSTOA token.
+   - `fungible-v1` — identical to upstream `fungible-v2` (StoaChain just started at v1).
+   - `fungible-xchain-v1` — identical to Kadena's.
+   - `gas-payer-v1` — gas-station interface, identical to Kadena's.
 
-3. **StoaFungibleV1 Interface** (`StoaFungibleV1.pact`)
-   - Defines the fungible token interface
-   - Merged from Kadena's `fungible-v2` and `fungible-xchain-v1`
+3. **STOA coin module** (`pact/stoa-coin/new-coin.pact`)
+   - Single module that defines both the STOA coin and the URSTOA token, plus the UrStoaVault state and RPS distribution logic.
+   - Governed by **7 Stoa Masters keysets** (`stoa-ns.stoa_master_one` … `stoa-ns.stoa_master_seven`) with `enforce-one`.
+   - Exposes `coin.URC_Emissions` (the per-block emission function returning `[block-emission urv-emission]`) and the supply table read/write paths.
 
-4. **STOA Module** (`stoa.pact`)
-   - The main token contract
-   - Implements `StoaFungibleV1`
-   - Governed by the 7 Stoa Masters keysets (enforce-one)
-
-5. **STOA Tables** (`stoa-install.pact`)
-   - Creates `STOA.StoaTable` (STOA account balances)
-   - Creates `STOA.LocalSupply` (per-chain STOA supply tracking)
-   - Creates `STOA.FoundationPending` (10% Yang emission accumulation)
-   - Creates `STOA.UR|StoaTable` (URSTOA account balances)
-   - Creates `STOA.UR|LocalSupply` (URSTOA supply tracking)
-   - Creates `STOA.URV|UrStoaVault` (URSTOA-Vault state)
-   - Creates `STOA.URV|UrStoaVaultUser` (URSTOA-Vault user stakes)
-
-6. **StoaChain Initialization** (`stoa-initialise.yaml`)
-   - Calls `STOA.A_InitialiseStoaChain` with GENESIS capability
-   - **On Chain 0:**
-     - Creates foundation accounts for STOA and URSTOA
-     - Mints `GENESIS-SUPPLY` (12M STOA) to foundation
-     - Mints `URGENESIS-SUPPLY` (1M URSTOA) to foundation
-     - Initializes URSTOA-Vault with foundation as first staker
-   - **On Chains 1-9:**
-     - No-op (returns success without doing anything)
-   - All initial supply is minted exclusively on Chain 0
-
-7. **Gas Payer** (`gas-payer-v1.pact`)
-   - Enables gas station functionality
+4. **Genesis mint on Chain 0** (the genesis transaction is a no-op on chains 1-9)
+   - **STOA — 16,000,000 total**: 10M ICO (held in the foundation account until the ICO finalises), 2M foundation, 4M Ouronet migration.
+   - **URSTOA — 1,000,000 total**: 250k founders, 250k ICO sale (1 URSTOA per $5 contributed), 500k foundation.
+   - The UrStoaVault is initialised on Chain 0.
 
 ### GENESIS Capability
 
-The node automatically grants the `GENESIS` capability during genesis block execution. This is handled in `src/Chainweb/Pact5/TransactionExec.hs`:
-
-```haskell
-[ CapToken (QualifiedName "GENESIS" (ModuleName "STOA" Nothing)) []
-, CapToken (QualifiedName "COINBASE" (ModuleName "STOA" Nothing)) []
-]
-```
-
-This allows the `XM_InitialMint` function to execute without external signatures.
+The node automatically grants the `GENESIS` capability during genesis block execution, which allows the initial-mint functions in the coin module to execute without external signatures. The grant is performed in the Pact-5 transaction execution path (`src/Chainweb/Pact5/TransactionExec.hs`).
 
 ## Keysets Explained
 
@@ -142,9 +100,9 @@ This allows the `XM_InitialMint` function to execute without external signatures
 | `ns-operate-keyset` | Controls namespace operations (creating namespaces) |
 | `ns-genesis-keyset` | Empty keyset used during genesis rotation |
 
-### Stoa Masters Keysets (defined in stoa-masters.yaml)
+### Stoa Masters Keysets (coin-module governance)
 
-The STOA module uses a **7-of-7 enforce-one** governance model:
+The coin module is governed by **7 Stoa Masters keysets** — `stoa-ns.stoa_master_one` through `stoa-ns.stoa_master_seven` — combined with `enforce-one`, so **any 1-of-7** master keyset can authorise a governance action on the coin module:
 
 ```pact
 (defcap GOV|STOA_MASTERS ()
@@ -159,40 +117,45 @@ The STOA module uses a **7-of-7 enforce-one** governance model:
 )
 ```
 
-This means **any one** of the 7 master keysets can authorize governance actions.
+Namespace administration (creating namespaces under `user` / `free`, etc.) uses a separate `ns-admin-keyset` / `ns-operate-keyset` pair defined in the genesis YAMLs — those gate namespace operations, not the coin module.
+
+A `stoa-foundation` account holds the foundation's genesis STOA allocations (including the 10M held until the ICO finalises) and is controlled by a foundation keyset.
 
 ## Pre-Launch Configuration
 
-> ⚠️ **Before running the Ea tool**, ensure the following are configured:
+> ⚠️ The "sync `stoaGenesisTime` (Haskell) with `GENESIS-TIME` (Pact)" requirement that appeared in earlier drafts **does not apply** to the live node. `src/Chainweb/GasPrice.hs` does not exist in the shipped code, and the coin module at `pact/stoa-coin/new-coin.pact` does not define `GENESIS-TIME`. The dynamic gas-price ramp is roadmap-only — see [`GAS_PRICE_SYSTEM.md`](GAS_PRICE_SYSTEM.md).
 
-### Required Constants in `pact/coin-contract/stoa.pact`:
+The authoritative chain genesis time lives in `src/Chainweb/Version/Stoa.hs`:
 
-| Constant | Description | Example |
-|----------|-------------|---------|
-| `GENESIS-SUPPLY` | Initial STOA supply | `12000000.0` |
-| `GENESIS-CEILING` | Emission ceiling | `480000000.0` |
-| `GENESIS-TIME` | Chain launch time | `"2026-01-01T00:00:00Z"` |
+```haskell
+_genesisTime = 2026-02-23T18:00:00.000000 UTC
+```
 
-### Required Constants in `src/Chainweb/GasPrice.hs`:
+### Genesis supply
 
-| Constant | Description | Must Match |
-|----------|-------------|------------|
-| `stoaGenesisTime` | Genesis time (Haskell) | **MUST equal `GENESIS-TIME` in stoa.pact** |
+At genesis, Chain 0 receives all initial supply; chains 1-9 get no-ops.
 
-> 🚨 **CRITICAL**: The `stoaGenesisTime` in Haskell and `GENESIS-TIME` in Pact **MUST be identical**.
-> A mismatch will cause gas price validation failures. See [`docs/GAS_PRICE_SYSTEM.md`](../../docs/GAS_PRICE_SYSTEM.md).
+**STOA — 16,000,000 total**:
 
-### Required Keysets (in YAML files):
+| Allocation | Amount |
+|------------|--------|
+| ICO | 10,000,000 STOA |
+| Foundation | 2,000,000 STOA |
+| Ouronet migration | 4,000,000 STOA |
 
-1. **Namespace keysets** in `pact/genesis/{network}/ns.yaml`:
-   - `ns-admin-keyset`
-   - `ns-operate-keyset`
+**URSTOA — 1,000,000 total** (Chain 0 only):
 
-2. **Stoa Masters keysets** in `pact/genesis/{network}/stoa-masters.yaml`:
-   - `stoa_master_one` through `stoa_master_seven`
+| Allocation | Amount |
+|------------|--------|
+| Founders | 250,000 URSTOA |
+| ICO sale | 250,000 URSTOA |
+| Foundation | 500,000 URSTOA |
 
-3. **Foundation keyset** in `pact/coin-contract/stoa-initialise.yaml`:
-   - `stoa-foundation-keyset`
+### Keysets (in YAML files under `pact/genesis/stoa/`)
+
+1. **Namespace keysets** (`ns.yaml`): `ns-admin-keyset`, `ns-operate-keyset` — gate namespace operations.
+2. **Stoa Masters keysets**: `stoa_master_one` … `stoa_master_seven` — gate coin-module governance (1-of-7 enforce-one).
+3. **Foundation keyset**: controls the `stoa-foundation` account that holds the foundation's STOA allocations, including the 10M held until ICO finalisation.
 
 ## Running the Ea Tool
 
@@ -202,14 +165,11 @@ cd cwtools
 cabal run ea
 ```
 
-This generates Haskell payload modules in `src/Chainweb/BlockHeader/Genesis/`:
-- `StoaMainnet0to9Payload.hs` (10 chains)
-- `StoaTestnet0to2Payload.hs` (3 chains)
-- `StoaDevnet0to2Payload.hs` (3 chains)
+This generates a Haskell payload module in `src/Chainweb/BlockHeader/Genesis/` for the 10 chains of the `stoa` network.
 
-## Chain Graph Configurations
+## Chain Graph
 
-### Petersen Graph (10 chains - Mainnet)
+StoaChain uses the **Petersen graph** (10 chains, degree-3 regular):
 
 ```
     0 --- 5
@@ -225,30 +185,19 @@ This generates Haskell payload modules in `src/Chainweb/BlockHeader/Genesis/`:
     4 --- 9
 ```
 
-Each chain has exactly 3 neighbors (degree-3 regular graph).
-
-### Triangle Graph (3 chains - Testnet/Devnet)
-
-```
-    0
-   / \
-  1---2
-```
-
-Each chain has exactly 2 neighbors.
+Each chain has exactly 3 neighbors. There is no Triangle-graph testnet in the shipped node.
 
 ## Differences from Kadena Chainweb
 
 | Aspect | Kadena | StoaChain |
 |--------|--------|-----------|
-| Token Module | `coin` | `STOA` |
-| Governance | `false` (always true) | 7 Stoa Masters keysets |
+| Token Module | `coin` | STOA coin module at `pact/stoa-coin/new-coin.pact` |
+| Governance | `false` (always true) | 7 Stoa Masters keysets (`stoa_master_one` … `_seven`, `enforce-one`, any 1-of-7) govern the coin module |
 | Main Namespace | `kadena` | `stoa-ns` |
-| Token Interface | `fungible-v2` + `fungible-xchain-v1` | `StoaFungibleV1` (merged) |
-| Allocations | CSV-based vesting | None (emission-based) |
-| Initial Keysets | 80+ investor keysets | 10 keysets (3 ns + 7 masters) |
-| Pact Version | Pact 4 → Pact 5 migration | Pact 5 from genesis |
-| Networks | mainnet01, testnet04, development, recap-development | stoamainnet01, stoatestnet02, stoadevnet03 |
+| Fungible interface | `fungible-v2` + `fungible-xchain-v1` | `stoa-ns.stoic-fungible-v1` on the live chain (plus `ur-stoic-fungible-v1`, `fungible-v1`, `fungible-xchain-v1`) |
+| Allocations | CSV-based vesting | None |
+| Pact Version | Pact 4 → Pact 5 migration | Pact 5.4 on-chain; node still retains Pact 4 infrastructure internally (see [`PACT4_REMOVAL.md`](PACT4_REMOVAL.md)) |
+| Networks | mainnet01, testnet04, development, recap-development | single `stoa` network |
 
 ## Version Folder Structure
 
@@ -256,17 +205,13 @@ The `src/Chainweb/Version/` folder contains network version definitions:
 
 ```
 src/Chainweb/Version/
-├── StoaChain.hs   # StoaChain network definitions (Mainnet, Testnet, Devnet)
-├── Registry.hs    # Version lookup and registration
-├── Guards.hs      # Fork activation guard functions
-└── Utils.hs       # Utility functions for chain graphs and heights
+├── Stoa.hs       # stoa network definition (single version)
+├── Registry.hs   # Version lookup and registration
+├── Guards.hs     # Fork activation guards
+└── Utils.hs      # Utility functions
 ```
 
-**Removed Kadena files:**
-- `Mainnet.hs` - Kadena Mainnet (not needed)
-- `Testnet04.hs` - Kadena Testnet (not needed)
-- `Development.hs` - Kadena Development (not needed)
-- `RecapDevelopment.hs` - Kadena Recap Development (not needed)
+The upstream Kadena `Mainnet.hs` / `Testnet04.hs` / `Development.hs` / `RecapDevelopment.hs` files may still live in the repo — inspect the current tree to confirm what is retained vs. removed. Do not publish "removed files" lists without verifying them against the shipped code.
 
 ## File Format (YAML)
 
@@ -285,120 +230,46 @@ keyPairs: []                       # Empty for genesis (no signatures needed)
 
 ## Modifications Summary
 
-### Files Created for StoaChain
+### Files actually shipped for StoaChain
 
-1. **Version Definition**: `src/Chainweb/Version/StoaChain.hs`
-   - Defines `stoaMainnet`, `stoaTestnet`, `stoaDevnet`
-   - Pattern synonyms: `StoaMainnet01`, `StoaTestnet02`, `StoaDevnet03`
+1. **Version Definition**: `src/Chainweb/Version/Stoa.hs`
+   - Defines the single `stoa` `ChainwebVersion` (version code `0x0000000A`, 10 chains, Petersen graph, 30 s block delay).
+   - `_genesisTime = 2026-02-23T18:00:00.000000` UTC.
+   - `_versionBootstraps` contains `node1.stoachain.com:1789`.
 
-2. **Genesis Definitions**: `cwtools/ea/Ea/Genesis.hs`
-   - `stoaMainnet0to9` (10 chains)
-   - `stoaTestnet0to2` (3 chains)
-   - `stoaDevnet0to2` (3 chains)
+2. **Genesis Payload Sources**: `pact/genesis/stoa/` (per-chain YAML/pact files).
 
-3. **Contract Loading YAMLs**:
-   - `pact/coin-contract/load-stoa-interface.yaml`
-   - `pact/coin-contract/load-stoa-contract.yaml`
-   - `pact/coin-contract/install-stoa-contract.yaml`
-   - `pact/coin-contract/stoa-initialise.yaml` (initializes StoaChain on Chain 0)
-
-4. **Network-Specific Genesis Configs**:
-   - `pact/genesis/mainnet/ns.yaml`
-   - `pact/genesis/mainnet/stoa-masters.yaml`
-   - `pact/genesis/testnet/ns.yaml`
-   - `pact/genesis/testnet/stoa-masters.yaml`
-   - `pact/genesis/devnet/ns.yaml`
-   - `pact/genesis/devnet/stoa-masters.yaml`
-
-### Files Removed (Kadena-specific)
-
-- `pact/genesis/devnet/` (old Kadena devnet)
-- `pact/genesis/testnet04/` (old Kadena testnet)
-- `pact/genesis/testnet05/` (old Kadena testnet)
-- `pact/genesis/mainnet/` (old Kadena mainnet with allocations)
-- `pact/genesis/ns-v1.yaml`
-- `pact/genesis/ns-v2.yaml`
+3. **STOA Coin Module**: `pact/stoa-coin/new-coin.pact` (single module used at genesis).
 
 ### Registry Updates
 
-`src/Chainweb/Version/Registry.hs` updated to include:
-- `stoaMainnet`, `stoaTestnet`, `stoaDevnet` in `knownVersions`
+`src/Chainweb/Version/Registry.hs` registers `stoa` as a known version.
 
 ## Next Steps After Genesis
 
 After running the Ea tool:
 
-1. Add generated payload modules to `chainweb.cabal`
-2. Update `StoaChain.hs` to import and use actual payloads instead of `emptyPayload`
-3. Configure bootstrap nodes for each network
+1. Add generated payload modules to `chainweb.cabal`.
+2. Wire the payload into `src/Chainweb/Version/Stoa.hs`.
+3. Confirm bootstrap configuration (`_versionBootstraps`) is correct for the intended environment.
 
 ---
 
-## Global Supply Registry (Implemented)
+## Pact is stock — no `chain-data` extensions
 
-The `XM_StoaCoinbase` function computes block rewards dynamically using two custom `chain-data` fields that are injected by the node runtime.
+Earlier drafts of this doc described `global-supply-register` and `external-fpa` extensions to `chain-data`, plus a `Chainweb.Pact.GlobalSupply` Haskell module and a Foundation-Pending-Amount (FPA) delta-tracking mechanism. **None of that is in the live node.**
 
-### Chain-Data Extensions
-
-StoaChain uses **AncientPact** (a fork of Pact 5) with two additional `chain-data` fields:
-
-| Field | Type | Available On | Description |
-|-------|------|--------------|-------------|
-| `global-supply-register` | Decimal | All chains | Sum of LocalSupply from all chains |
-| `external-fpa` | Decimal | Chain 0 only | Sum of FoundationPending from chains 1-9 |
-
-### Implementation
-
-The implementation spans both repositories:
-
-**AncientPact (Pact 5 Fork):**
-- `Pact/Core/Evaluate.hs` - Added `_pdGlobalSupplyRegister` and `_pdExternalFPA` to `PublicData`
-- `Pact/Core/IR/Eval/CEK/CoreBuiltin.hs` - Fields included in `coreChainData` output
-
-**AncientStoa (Chainweb Node):**
-- `src/Chainweb/Pact/GlobalSupply.hs` - Computes global supply and external FPA
-- `src/Chainweb/Pact5/Types.hs` - `TxContext` includes `_tcGlobalSupply` and `_tcExternalFPA`
-- `src/Chainweb/Pact5/TransactionExec.hs` - `ctxToPublicData` populates the fields
-
-### How It Works
-
-1. **Before coinbase execution**, the node:
-   - Queries `LocalSupply` table on each chain and sums them → `global-supply-register`
-   - Queries `FoundationPending` table on chains 1-9 and sums them → `external-fpa` (Chain 0 only)
-
-2. **During coinbase**, the Pact code accesses these values:
-   ```pact
-   (current-total-supply:decimal (at "global-supply-register" (chain-data)))
-   (external-fpa:decimal (at "external-fpa" (chain-data)))
-   ```
-
-3. **Timing**: Values are computed from the **previous** block state, ensuring deterministic computation across all nodes.
-
-### Cross-Chain Supply Updates
-
-When cross-chain transfers complete:
-- Origin chain: `LocalSupply` decreases (via `X_UpdateLocalSupply amount false`)
-- Target chain: `LocalSupply` increases (via `X_UpdateLocalSupply amount true`)
-
-The global supply remains constant (tokens move, not created). The node's supply computation naturally handles this by summing all chains.
-
-### REPL Testing
-
-In the Pact REPL, these fields don't exist unless mocked:
-
-```pact
-(env-chain-data { 
-    "chain-id": "0", 
-    "block-time": (time "2026-06-15T12:00:00Z"),
-    "global-supply-register": 100000000.0,
-    "external-fpa": 350.0
-})
-```
-
-See `pact/coin-contract/stoa.repl` for complete testing examples.
+StoaChain uses **stock upstream Pact 5.4**. The Pact source-repository-package pin is declared in `cabal.project`. The emission formula in `coin.URC_Emissions` was rewritten into a linear calendar-based form precisely so that no global-supply aggregate is needed per block — which means no `chain-data` extension is needed either. Per-chain STOA supply is tracked in a Pact table inside the coin module; the explorer reads that table directly for live per-chain supply.
 
 ---
 
-*Generated for StoaChain - A Kadena Chainweb Fork*
-*Date: December 2025*
+## Related Documentation
+
+- **Emission System**: [`EMISSION_SYSTEM.md`](EMISSION_SYSTEM.md)
+- **Gas Price System**: [`GAS_PRICE_SYSTEM.md`](GAS_PRICE_SYSTEM.md)
+- **Pact 4 retrospective**: [`PACT4_REMOVAL.md`](PACT4_REMOVAL.md)
+
+---
+
+*Last updated: 2026-04-19*
 
