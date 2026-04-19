@@ -67,7 +67,7 @@ Read the original whitepapers:
 |--------|-----------------|-----------|
 | **Native Token** | KDA (`coin` module) | STOA (live modules under `stoa-ns.*`) |
 | **Token Interface** | `fungible-v2` + `fungible-xchain-v1` | `stoa-ns.stoic-fungible-v1` / `stoa-ns.fungible-xchain-v1` |
-| **TRANSFER Capability** | Managed (`@managed`) | Non-managed (validations preserved) |
+| **TRANSFER Capability** | Managed (`@managed`) only | Both flows available: managed `transfer` (original Kadena nomenclature, retained) + `C_Transfer` (thin wrapper around managed `transfer`) + `C_Transmit` (same logic, non-managed capability). Same dual pattern on URSTOA. |
 | **Main Namespace** | `kadena` | `stoa-ns` |
 | **Pact Version (on-chain)** | Pact 4 → Pact 5 migration | Pact 5.4; node retains Pact 4 infra internally |
 | **Emission Model** | CSV-based (`rewards/miner_rewards.csv`) | Computed inside Pact coin module; CSV retained in code but value ignored |
@@ -81,24 +81,21 @@ Read the original whitepapers:
 
 The live `stoa-ns` module set (visible on the explorer) includes `stoic-fungible-v1`, `ur-stoic-fungible-v1`, `fungible-xchain-v1`, `stoic-predicates`, `stoic-xchain`, and `gas-payer-v1`, plus upgraded `coin` and `ns` in the root namespace. These modules have diverged from the genesis source in `pact/stoa-coin/new-coin.pact` via post-genesis upgrades. When documenting live behavior, prefer the on-chain source (via `describe-module`) or the explorer over the genesis file.
 
-#### Why Non-Managed TRANSFER?
+#### Dual transfer nomenclature — managed and non-managed side by side
 
-In Kadena's coin contract, `TRANSFER` is a managed capability (`@managed`) that requires:
-1. Either installing the capability in code, OR
-2. Adding the capability to a key before creating the transaction
+In Kadena's coin contract, `TRANSFER` is a managed capability (`@managed`) that requires either installing the capability in code, or granting it to a key before creating the transaction. That flow is fine for capability-based strict signing, but it also forces users into two-key patterns in common scenarios (you can't sign with an "empty" key and then re-add the same key under a capability).
 
-**The Problem with Managed TRANSFER:**
-- You cannot sign a transaction with an "empty" key (no capabilities) and add the same key with a capability
-- This forces users to use two different keys in certain scenarios
-- Adds complexity without meaningful security benefit
+StoaChain keeps both flows. The coin module defines:
 
-**StoaChain's Solution:**
-- The `TRANSFER` capability is **non-managed** (no `@managed` annotation)
-- The capability still enforces all validations (sender guard, amount checks, precision)
-- The `DEBIT` capability inside TRANSFER enforces the sender's guard
-- This streamlines transaction execution without compromising security
+- **`transfer`** — original Kadena nomenclature, `@managed` TRANSFER capability. Kept so tooling and interfaces built around upstream `fungible-v2` continue to work unchanged.
+- **`C_Transfer`** — StoaChain-named wrapper that calls the original `transfer` under the hood; **same managed capability semantics** as `transfer`.
+- **`C_Transmit`** — StoaChain-named function that performs the same transfer operation, but the **capability is not `@managed`**. This is the simpler flow for signing scenarios where a managed capability adds ceremony without meaningful security benefit.
 
-The validations inside the TRANSFER capability are sufficient to ensure transfers execute correctly and securely.
+The non-managed path is **not a reduced-security path**. The same invariants still fire: sender guard via the `DEBIT` capability, amount and precision checks, balance bookkeeping. What changes is only how the capability is acquired at sign time — `C_Transmit` doesn't require pre-installing or pre-granting.
+
+**URSTOA mirrors the same pattern**: the module exposes both a managed entry point and a `C_Transmit`-style non-managed one. So for both STOA and URSTOA, callers can pick managed-capability rigor or non-managed ergonomics per-call.
+
+This is strictly additive over the Kadena flow: anything that worked against `coin.transfer` on Kadena still works on StoaChain; the `C_Transmit` path is an opt-in simplification.
 
 ---
 

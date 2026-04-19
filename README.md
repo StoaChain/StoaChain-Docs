@@ -64,7 +64,7 @@ Read the original whitepapers:
 |--------|-----------------|-----------|
 | **Native Token** | KDA (`coin` module) | STOA (`stoa-ns.*` modules, see governance note) |
 | **Token Interface** | `fungible-v2` + `fungible-xchain-v1` | `stoa-ns.stoic-fungible-v1` / `stoa-ns.fungible-xchain-v1` |
-| **TRANSFER Capability** | Managed (`@managed`) | Non-managed (simplified, validations preserved) |
+| **TRANSFER Capability** | Managed (`@managed`) only | Dual flow: managed `transfer` (original Kadena nomenclature) kept for compatibility; additional non-managed `C_Transmit` layered on top for simpler signing. `C_Transfer` wraps the managed `transfer`. Same dual pattern for URSTOA. |
 | **Main Namespace** | `kadena` | `stoa-ns` |
 | **Pact Version (on-chain)** | Pact 4 → Pact 5 migration | Pact 5.4 (node retains Pact 4 infrastructure internally) |
 | **Emission Model** | CSV-based (`rewards/miner_rewards.csv`) | Computed inside Pact coin module; CSV retained in code but its value is ignored |
@@ -78,12 +78,18 @@ Read the original whitepapers:
 
 The live on-chain module layout (visible on the explorer) uses `stoa-ns`-namespaced interfaces — notably `stoa-ns.stoic-fungible-v1` and `stoa-ns.fungible-xchain-v1` (plus `stoa-ns.ur-stoic-fungible-v1`, `stoa-ns.stoic-predicates`, `stoa-ns.stoic-xchain`, `stoa-ns.fungible-v1`, and `stoa-ns.gas-payer-v1`). These live modules have **diverged from the genesis source** in `pact/stoa-coin/new-coin.pact` via post-genesis upgrades, including bug-fix changes. The authoritative source for live behavior is the chain itself — fetch via `describe-module` from a node, or inspect the explorer.
 
-**Why Non-Managed TRANSFER?**
-- You cannot sign a transaction with an "empty" key (no capabilities) and add the same key with a capability
-- This forces users to use two different keys in certain scenarios
-- The TRANSFER capability still enforces all validations (sender guard, amount checks, precision)
-- The DEBIT capability inside TRANSFER enforces the sender's guard
-- This streamlines transaction execution without compromising security
+**Dual transfer nomenclature — managed and non-managed side by side**
+
+The coin module keeps the original Kadena **`coin.transfer`** function with its `@managed` TRANSFER capability, so tooling that expects the upstream `fungible-v2` shape continues to work. On top of that, StoaChain adds its own nomenclature:
+
+- **`C_Transfer`** — wraps the original managed `transfer`; behaves identically (managed capability, capability-based signing).
+- **`C_Transmit`** — the same transfer operation, but the capability is **non-managed**. This is the simpler flow for scenarios where `@managed` forces users into two-key signing patterns.
+
+The non-managed path still enforces every invariant the managed path does (sender guard, amount checks, precision, DEBIT inside TRANSFER). The difference is only in how the capability is acquired at sign time — `C_Transmit` doesn't require pre-installing or pre-granting the capability.
+
+**URSTOA mirrors the same pattern**: the module exposes both managed and non-managed entry points, so callers can pick the flow that fits.
+
+Net effect: users get managed-capability rigor where they want it, and non-managed ergonomics where they don't.
 
 ---
 
